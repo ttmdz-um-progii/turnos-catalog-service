@@ -1,0 +1,9 @@
+{
+    "java.compile.nullAnalysis.mode": "automatic",
+    "java.configuration.updateBuildConfiguration": "automatic",
+    "explorer.fileNesting.enabled": true,
+    "explorer.fileNesting.expand": false,
+    "explorer.fileNesting.patterns": {
+        "README.md": "pom.xml, mvnw, mvnw.cmd, compose.yaml, .env, .env.example, .gitignore, .gitattributes, HELP.md"
+    }
+}
