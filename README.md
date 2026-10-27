@@ -19,29 +19,41 @@ Toda la configuración llega por variables de entorno. Para desarrollo se leen d
 cp .env.example .env
 ```
 
-Completar las variables `DB_*` (por ejemplo `DB_HOST=localhost`, `DB_PORT=5432`) y `REDIS_HOST`/`REDIS_PORT` con los datos de la cátedra: Spring Boot exige un host de Redis válido al arrancar, aunque se conecta recién cuando lo usa. `REDIS_PASSWORD` y `KAFKA_BOOTSTRAP_SERVERS` pueden quedar vacías.
+Completar:
 
-## Levantar la base
+- `POSTGRES_USER` / `POSTGRES_PASSWORD`: superusuario del contenedor de PostgreSQL. Solo se usa para inicializar la base.
+- `DB_*`: conexión de la aplicación (por ejemplo `DB_HOST=localhost`, `DB_PORT=5432`, `DB_NAME=catalog`, `DB_SCHEMA=catalog`). `DB_USERNAME` tiene que ser distinto de `POSTGRES_USER`: es un usuario propio, con permisos solo sobre el esquema `DB_SCHEMA`, que crea `docker/postgres/init/01-app-user.sh`.
+- `APP_PORT`: puerto donde Compose publica el servicio (por ejemplo `8080`).
+- `REDIS_HOST` / `REDIS_PORT`: datos de la cátedra. Spring Boot exige un host de Redis válido al arrancar, aunque se conecta recién cuando lo usa. `REDIS_PASSWORD` y `KAFKA_BOOTSTRAP_SERVERS` pueden quedar vacías.
 
-```bash
-docker compose up -d
-```
+Redis y Kafka son de la cátedra: no se levantan en este Compose.
 
-Levanta PostgreSQL con el puerto `DB_PORT` y un volumen persistente (`catalog-db-data`). Para borrar los datos: `docker compose down -v`.
-
-## Tests y arranque
-
-Con la base levantada:
+## Levantar todo con Docker Compose
 
 ```bash
-./mvnw test
-./mvnw spring-boot:run
+docker compose up --build
 ```
 
-Para comprobar que está conectado a la base:
+Levanta PostgreSQL y, cuando la base está lista, el servicio (que se compila dentro de la imagen). Comprobar que responde:
 
 ```bash
 curl localhost:8080/actuator/health
 ```
 
-Responde `{"status":"UP"}` mientras la base esté accesible.
+Responde `{"status":"UP"}` mientras la base esté accesible. Dentro de Compose el servicio se conecta a `postgres:5432`; el resto de la configuración sale del mismo `.env`.
+
+El usuario de la aplicación se crea solo la primera vez, con el volumen vacío. Si se cambian las credenciales o el esquema, hay que borrar la base y volver a levantarla:
+
+```bash
+docker compose down -v
+```
+
+## Desarrollo local con Maven
+
+Levantar solo la base y correr el servicio con el wrapper, con el mismo `.env`:
+
+```bash
+docker compose up -d postgres
+./mvnw test
+./mvnw spring-boot:run
+```
