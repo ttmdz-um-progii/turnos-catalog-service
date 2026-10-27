@@ -33,6 +33,14 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+    healthcheck:
+      # La imagen del JRE no trae curl ni wget: la petición HTTP se arma con bash
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/localhost/8080 && printf 'GET /actuator/health HTTP/1.1\\r\\nHost: localhost\\r\\nConnection: close\\r\\n\\r\\n' >&3 && grep -q '\"status\":\"UP\"' <&3"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+      # Margen para que arranquen la JVM y Flyway antes de contar fallos
+      start_period: 40s
 
 volumes:
   catalog-db-data:

@@ -40,7 +40,9 @@ Levanta PostgreSQL y, cuando la base está lista, el servicio (que se compila de
 curl localhost:8080/actuator/health
 ```
 
-Responde `{"status":"UP"}` mientras la base esté accesible. Dentro de Compose el servicio se conecta a `postgres:5432`; el resto de la configuración sale del mismo `.env`.
+Responde `{"status":"UP"}` mientras la base esté accesible y `{"status":"DOWN"}` (con código 503) si no lo está. Redis y Kafka de la cátedra no cuentan: sin ellos el servicio sigue respondiendo con su copia local. Compose usa este mismo endpoint como healthcheck, así que `docker compose ps` muestra el servicio como `healthy` o `unhealthy`.
+
+Dentro de Compose el servicio se conecta a `postgres:5432`; el resto de la configuración sale del mismo `.env`.
 
 El usuario de la aplicación se crea solo la primera vez, con el volumen vacío. Si se cambian las credenciales o el esquema, hay que borrar la base y volver a levantarla:
 
@@ -57,3 +59,9 @@ docker compose up -d postgres
 ./mvnw test
 ./mvnw spring-boot:run
 ```
+
+## Migraciones
+
+El esquema de la base lo crea y lo modifica Flyway: al arrancar, el servicio aplica las migraciones pendientes de `src/main/resources/db/migration/` y anota cada una en la tabla `flyway_schema_history`. Hibernate solo valida que las entidades coincidan con las tablas.
+
+Una migración ya aplicada no se edita, porque Flyway detecta el cambio y el servicio no arranca. Cada cambio de esquema va en un archivo nuevo con la versión siguiente, por ejemplo `V2__create_professional_table.sql`.
