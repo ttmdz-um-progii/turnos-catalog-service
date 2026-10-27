@@ -4,6 +4,6 @@
     "explorer.fileNesting.enabled": true,
     "explorer.fileNesting.expand": false,
     "explorer.fileNesting.patterns": {
-        "README.md": "pom.xml, mvnw, mvnw.cmd, compose.yaml, .env, .env.example, .gitignore, .gitattributes, HELP.md"
+        "README.md": "pom.xml, mvnw, mvnw.cmd, compose.yaml, Dockerfile, .dockerignore, .env, .env.example, .gitignore, .gitattributes, HELP.md"
     }
 }
