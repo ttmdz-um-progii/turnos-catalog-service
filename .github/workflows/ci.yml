@@ -1,15 +1,27 @@
 name: CI
 
+# Corre en cada PR abierto o actualizado contra main o develop, al mergear un PR en develop
+# y en cada push a main (main solo recibe merges de PR). Un push directo a develop no lo dispara.
 on:
   pull_request:
-  push:
     branches: [main, develop]
+    types: [opened, synchronize, reopened, closed]
+  push:
+    branches: [main]
 
 jobs:
   build:
+    # Un PR cerrado solo corre si se mergeó en develop: el merge en main ya lo cubre el push
+    if: >-
+      github.event_name == 'push' ||
+      github.event.action != 'closed' ||
+      (github.event.pull_request.merged && github.event.pull_request.base.ref == 'develop')
     runs-on: ubuntu-latest
     steps:
+      # Al mergear se prueba develop tal como quedó, no la rama del PR
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.action == 'closed' && github.event.pull_request.base.ref || '' }}
 
       - uses: actions/setup-java@v6
         with:
