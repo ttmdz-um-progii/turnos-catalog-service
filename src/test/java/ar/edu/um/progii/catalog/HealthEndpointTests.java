@@ -11,9 +11,11 @@ import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.context.SpringBootTest.WebEnvironment;
 import org.springframework.boot.test.web.server.LocalServerPort;
+import org.springframework.context.annotation.Import;
 
-// Un Redis inexistente simula la cátedra caída: el health no tiene que enterarse
-@SpringBootTest(webEnvironment = WebEnvironment.RANDOM_PORT, properties = "spring.data.redis.host=redis.invalid")
+// La configuración de test apunta a un Redis inexistente: con la cátedra caída el health sigue UP
+@Import(TestcontainersConfiguration.class)
+@SpringBootTest(webEnvironment = WebEnvironment.RANDOM_PORT)
 class HealthEndpointTests {
 
 	@LocalServerPort
