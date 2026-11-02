@@ -69,7 +69,7 @@ docker compose up -d postgres
 
 Los tests no usan la base de Compose ni el `.env`: cada corrida levanta su propio PostgreSQL con Testcontainers, así que solo hace falta Docker andando. Tampoco se conectan a la cátedra: apuntan a un Redis inexistente, igual que si estuviera caída.
 
-El CI de GitHub Actions corre lo mismo en cada PR y en cada push a `main` y `develop`. Si no compila o falla un test, el check queda en rojo.
+El CI de GitHub Actions corre lo mismo en cada PR contra `main` o `develop`, al mergear un PR en `develop` y en cada push a `main`. Un push directo a `develop` no lo dispara. Si no compila o falla un test, el check queda en rojo.
 
 ## Migraciones
 
