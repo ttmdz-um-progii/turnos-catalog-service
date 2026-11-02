@@ -1,5 +1,7 @@
 # turnos-catalog-service
 
+[![CI](https://github.com/ttmdz-um-progii/turnos-catalog-service/actions/workflows/ci.yml/badge.svg)](https://github.com/ttmdz-um-progii/turnos-catalog-service/actions/workflows/ci.yml)
+
 Servicio Spring Boot que mantiene una réplica local del catálogo de profesionales y horarios, sincronizada con la cátedra mediante snapshot REST, Redis y Kafka. Las búsquedas se responden desde su propia base PostgreSQL, así que el servicio sigue funcionando aunque la cátedra no esté accesible.
 
 Sigue una arquitectura hexagonal sin capa de service: los adaptadores de entrada (controladores, listener de Kafka, temporizador) usan directamente los puertos de entrada, y cada tecnología externa es un adaptador en `infrastructure` del módulo que la usa.
@@ -56,9 +58,18 @@ Levantar solo la base y correr el servicio con el wrapper, con el mismo `.env`:
 
 ```bash
 docker compose up -d postgres
-./mvnw test
 ./mvnw spring-boot:run
 ```
+
+## Tests
+
+```bash
+./mvnw verify
+```
+
+Los tests no usan la base de Compose ni el `.env`: cada corrida levanta su propio PostgreSQL con Testcontainers, así que solo hace falta Docker andando. Tampoco se conectan a la cátedra: apuntan a un Redis inexistente, igual que si estuviera caída.
+
+El CI de GitHub Actions corre lo mismo en cada PR y en cada push a `main` y `develop`. Si no compila o falla un test, el check queda en rojo.
 
 ## Migraciones
 
