@@ -1,0 +1,3 @@
+-- Punto de partida del historial de migraciones: todavía no crea tablas.
+-- Las tablas de la réplica del catálogo llegan en migraciones posteriores.
+-- Una migración ya aplicada no se edita: cada cambio va en un archivo nuevo.
