@@ -11,7 +11,9 @@ import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.context.SpringBootTest.WebEnvironment;
 import org.springframework.boot.test.web.server.LocalServerPort;
+import org.springframework.context.annotation.Import;
 
+@Import(TestcontainersConfiguration.class)
 // Un Redis inexistente simula la cátedra caída: el health no tiene que enterarse
 @SpringBootTest(webEnvironment = WebEnvironment.RANDOM_PORT, properties = "spring.data.redis.host=redis.invalid")
 class HealthEndpointTests {
