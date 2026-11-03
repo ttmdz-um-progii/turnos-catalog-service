@@ -29,6 +29,7 @@ Cada regla va con su motivo. Romper una es un error, aunque compile.
 **Dependencias**
 
 1. **NUNCA** importar `org.springframework.*` ni `jakarta.*` en `domain`. El centro no depende de tecnología. Lombok y `java.*` sí están permitidos.
+    - Tampoco en el vocabulario: los nombres y comentarios del dominio hablan del negocio, no de dónde vienen los datos. Se escribe `idsMissingFromCurrentCatalog`, no `idsMissingFromHashes`; "un cambio publicado por la cátedra", no "una entrada de Redis". Las claves, los comandos y los formatos de cada tecnología se documentan en su adaptador.
 2. **NUNCA** importar nada de `.application.` ni de `.infrastructure.` desde `domain`. Las dependencias apuntan hacia adentro.
 3. **NUNCA** importar `.infrastructure.` desde `application`. De Spring, la aplicación solo usa `org.springframework.stereotype.Component` y, cuando una operación lo necesita, `org.springframework.transaction.annotation.Transactional`.
 4. **NUNCA** nombrar una clase `...UseCaseImpl` fuera de `application/usecases` ni de sus tests. Afuera se inyecta siempre la interfaz del puerto.
@@ -49,14 +50,24 @@ Cada regla va con su motivo. Romper una es un error, aunque compile.
 
 **Modelo de dominio**
 
-13. El modelo valida sus invariantes en el constructor y lanza `IllegalArgumentException`. Lleva `@Getter` y `@Builder` **sobre el constructor**, para que `builder()` también pase por la validación.
+13. El modelo valida sus invariantes en el constructor y lanza `IllegalArgumentException`. Lleva `@Getter`. **Toda forma de crearlo pasa por ese constructor**, y cuál se expone depende de cómo se usa el modelo:
+
+    | Si el modelo… | Se crea con | Plantilla |
+    | --- | --- | --- |
+    | Tiene varios campos que llegan de afuera (base, API, Redis) y los arma un mapper | `@Builder` sobre el constructor público | 7.1 |
+    | Es un conjunto cerrado de variantes, cada una con un significado de negocio | Fábricas estáticas con nombre de negocio (`accepted()`, `rejected(reason)`) y constructor `private`, sin `@Builder` | 7.1b |
+    | Tiene uno o dos campos que no se pueden confundir de orden | Constructor público, sin `@Builder` | — |
+
+    - **NUNCA** `@Builder` sobre la clase: genera su propio constructor y saltea las validaciones.
+    - Las fábricas existen para que una combinación inválida no se pueda escribir. Si el constructor o un builder siguen siendo públicos, ese beneficio se pierde.
+    - Si no está claro qué caso aplica, se usa `@Builder` sobre el constructor.
 14. **NUNCA** `@Setter`, `@Data` ni `@NoArgsConstructor` en `domain`. Los cambios de estado se hacen con métodos con nombre de negocio (`changeXxx`, `disable`).
 15. Una regla de negocio sin tecnología (cálculos, decisiones) va en `domain/model`, como clase o método, y se prueba con un test unitario puro. El `UseCaseImpl` la usa para orquestar los puertos; no la reescribe.
 
 **Infraestructura**
 
 16. Inyección **siempre** por constructor: campos `private final` y `@RequiredArgsConstructor`. **NUNCA** `@Autowired` sobre un campo en `src/main`.
-17. Los mappers se escriben a mano, con una guarda de `null` al principio y construcción con `builder()`. **NUNCA** MapStruct ni ModelMapper.
+17. Los mappers se escriben a mano, con una guarda de `null` al principio, y construyen el modelo por la vía que este expone (regla 13): `builder()`, una fábrica o el constructor. **NUNCA** MapStruct ni ModelMapper.
 18. Los métodos del adaptador de persistencia llevan `@Transactional` (`readOnly = true` en las lecturas). `update` carga la entidad existente y le cambia solo los campos que corresponden.
     - 18b. Para escrituras masivas con id externo, el adaptador usa SQL con `JdbcTemplate` (`INSERT ... ON CONFLICT (id) DO UPDATE`) en lugar de `save()` de JPA (decisión 18). Se llama `JdbcXxxWriterAdapter`, va en `infrastructure/persistence/adapter/` e implementa un puerto `out` del módulo (`XxxWriter`). El resto de las reglas no cambia.
 19. Si el id lo asigna un sistema externo (por ejemplo, la cátedra), la entidad lleva `@Id` **sin** `@GeneratedValue`. Si lo genera la base, `@GeneratedValue(strategy = GenerationType.IDENTITY)`.
@@ -71,6 +82,16 @@ Cada regla va con su motivo. Romper una es un error, aunque compile.
 **Idioma**
 
 24. Código, clases, tablas, columnas y endpoints en inglés. Comentarios y mensajes de commit en español.
+
+**Nombres**
+
+25. Cada nombre (variable, parámetro, campo, método y parámetro de lambda) dice **qué contiene**, sin que haga falta leer el código de alrededor. Un nombre largo y preciso es mejor que uno corto y ambiguo:
+    - **NUNCA** nombres genéricos ni de una letra: `data`, `result`, `value`, `item`, `entry`, `obj`, `tmp`, `list`, `map`, `set`, `x`, `e`. Tampoco en lambdas ni en bucles.
+    - **NUNCA** un nombre que solo dice de dónde salió el valor: `Optional<Xxx> fromCache` no dice qué hay adentro. Va `xxxFromCache`.
+    - Las colecciones van en plural, y los mapas dicen su clave: `xxxs`, `xxxsById`, `yyyIdsByType`.
+    - Si conviven dos valores del mismo tipo con roles distintos, el nombre dice el rol: `expectedVersion` y `declaredVersion`, no `version` y `v`.
+    - Un parámetro conserva su nombre en toda la cadena de llamadas: si se llama `yyyIdsByType` en el caso de uso, se llama igual en la regla y en los tests.
+    - Los comentarios nombran los valores igual que el código. Las letras o abreviaturas de una issue o del anexo (`L`, `C`, `{v}`) no se usan: se escribe `localVersion < oldestVersion`, no `L < O`.
 
 ## 3. Organización en módulos
 
@@ -148,7 +169,7 @@ Solo existen las carpetas de las tecnologías que el módulo usa. Para una tecno
 
 | Pieza | Carpeta | Nombre | Anotaciones | Puede depender de |
 | --- | --- | --- | --- | --- |
-| Modelo | `domain/model` | `Xxx` | `@Getter`, `@Builder` en el constructor | `java.*`, Lombok, otros modelos |
+| Modelo | `domain/model` | `Xxx` | `@Getter`; creación según la regla 13 | `java.*`, Lombok, otros modelos |
 | Puerto de entrada | `domain/ports/in` | `<Verbo>XxxUseCase`, un método `<verbo>Xxx(...)` | ninguna | modelo |
 | Puerto de salida (base) | `domain/ports/out` | `XxxRepository` | ninguna | modelo |
 | Puerto de salida (otro) | `domain/ports/out` | `XxxSource` (lee de afuera), `XxxWriter` (escritura masiva), `XxxPublisher` (publica) | ninguna | modelo |
@@ -176,7 +197,7 @@ Se trabaja siempre **de adentro hacia afuera**: dominio → aplicación → infr
 ### A. Crear un módulo nuevo
 
 1. Definir: nombre del concepto (inglés, singular), campos y tipos (`BigDecimal` para dinero), invariantes, operaciones (cada una es un puerto `in`), qué necesita del exterior (cada cosa es un puerto `out`) y quién asigna el id.
-2. `domain/model/Xxx.java` (plantilla 7.1).
+2. `domain/model/Xxx.java`: plantilla 7.1, o 7.1b si el modelo es un conjunto cerrado de variantes (regla 13).
 3. `domain/ports/out/XxxRepository.java` con **solo** los métodos que van a usar los casos de uso (7.2).
 4. Un `domain/ports/in/<Verbo>XxxUseCase.java` por operación (7.3).
 5. `application/exception/XxxNotFoundException.java`, si alguna operación puede no encontrar lo pedido (7.4).
@@ -267,6 +288,55 @@ public class Xxx {
 			throw new IllegalArgumentException("Price must be greater than 0");
 		}
 		return price;
+	}
+}
+```
+
+### 7.1b Modelo con variantes cerradas
+
+Cuando el modelo solo puede tomar unas pocas formas, cada una con su significado (regla 13), se crea únicamente con fábricas. El constructor es privado y no hay `@Builder`, así que una combinación inválida, como un rechazo sin motivo, no se puede escribir.
+
+```java
+package ar.edu.um.progii.catalog.xxx.domain.model;
+
+import lombok.Getter;
+
+@Getter
+public class XxxOutcome {
+
+	private final XxxOutcomeType type;
+	private final String reason;
+
+	private XxxOutcome(XxxOutcomeType type, String reason) {
+		this.type = validateType(type);
+		this.reason = validateReason(type, reason);
+	}
+
+	public static XxxOutcome accepted() {
+		return new XxxOutcome(XxxOutcomeType.ACCEPTED, null);
+	}
+
+	public static XxxOutcome rejected(String reason) {
+		return new XxxOutcome(XxxOutcomeType.REJECTED, reason);
+	}
+
+	private static XxxOutcomeType validateType(XxxOutcomeType type) {
+		if (type == null) {
+			throw new IllegalArgumentException("Type is mandatory");
+		}
+		return type;
+	}
+
+	// El constructor sigue validando: es la red de seguridad si alguien agrega una fábrica mal armada
+	private static String validateReason(XxxOutcomeType type, String reason) {
+		boolean isRejection = type == XxxOutcomeType.REJECTED;
+		if (isRejection && (reason == null || reason.isBlank())) {
+			throw new IllegalArgumentException("A rejection needs a reason");
+		}
+		if (!isRejection && reason != null) {
+			throw new IllegalArgumentException("Only a rejection carries a reason");
+		}
+		return reason;
 	}
 }
 ```
@@ -598,9 +668,14 @@ find $B -type d -name service
 # Reglas 1 y 2: el dominio no tiene tecnología ni conoce capas externas
 grep -rsnE 'import (org\.springframework|jakarta)\.' $B/*/domain
 grep -rsnE '\.(application|infrastructure)\.' $B/*/domain
+# Regla 1: el dominio tampoco nombra tecnologías en nombres ni comentarios
+grep -rsniE '\b(redis|kafka|hash(es)?|jpa|jdbc|sql|http|endpoint|json)\b' $B/*/domain
 
 # Regla 14: el dominio no tiene setters
 grep -rsnE '@(Setter|Data|NoArgsConstructor)' $B/*/domain
+
+# Regla 13: @Builder nunca sobre la clase (las anotaciones de clase van sin sangría)
+grep -rsn '^@Builder' $B/*/domain
 
 # Regla 3: la aplicación no conoce la infraestructura y solo usa @Component y @Transactional de Spring
 grep -rsn '\.infrastructure\.' $B/*/application
@@ -614,6 +689,9 @@ grep -rsnE 'ports\.out|persistence\.' $B/*/infrastructure/{web,kafka,scheduler} 
 
 # Regla 16: sin inyección por campo
 grep -rsn '@Autowired' $B
+
+# Regla 25: sin nombres genéricos ni de una letra en variables y lambdas (src/main y src/test)
+grep -rsnE '\b(data|result|value|item|entry|obj|tmp|list|map|set|[a-z])( ->|\) ->| = | : )' src/main/java src/test/java
 
 # Regla 5: entre módulos, solo domain.model y domain.ports.in (shared se puede usar entero)
 for m in $(ls -d $B/*/ 2>/dev/null | xargs -n1 basename); do
@@ -633,5 +711,5 @@ Para terminar:
 
 ## Requisitos del proyecto
 
-- **Lombok** tiene que estar en el `pom.xml`, con el `maven-compiler-plugin` y Lombok en `annotationProcessorPaths`. Hoy no está: se agrega con el primer módulo que lo use.
+- **Lombok** tiene que estar en el `pom.xml`, con el `maven-compiler-plugin` y Lombok en `annotationProcessorPaths`, y excluido del jar en el `spring-boot-maven-plugin`. Ya está configurado.
 - Fuentes de este documento, en el hub `prog-2-proyecto-final`: `docs/proyecto/guias/crear-modulo-hexagonal.md` (plantillas), `docs/apuntes/hexagonal.md` (teoría) y `docs/proyecto/decisiones.md` (decisiones 14, 18, 19 y 20). Si este documento contradice a alguna de esas fuentes, manda este documento.
