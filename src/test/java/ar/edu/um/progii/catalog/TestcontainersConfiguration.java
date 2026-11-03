@@ -13,13 +13,17 @@ public class TestcontainersConfiguration {
 	@Bean
 	@ServiceConnection
 	PostgreSQLContainer postgresContainer() {
+
 		return new PostgreSQLContainer("postgres:18");
+
 	}
 
 	// Los tests no usan la cátedra: un Redis inexistente, aunque haya un .env local
 	@Bean
 	DynamicPropertyRegistrar catalogSourcesUnavailable() {
+
 		return registry -> registry.add("spring.data.redis.host", () -> "redis.invalid");
+
 	}
 
 }

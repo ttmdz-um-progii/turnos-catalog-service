@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<!--
+	Formato del código Java del repo. Lo usa VS Code (java.format.settings.url en .vscode/settings.json)
+	y lo puede usar Spotless en el build. Lo que no está acá toma el valor por defecto de Eclipse.
+-->
+<profiles version="23">
+	<profile kind="CodeFormatterProfile" name="turnos-catalog-service" version="23">
+		<!-- Sangría con tabs, como pide el documento de arquitectura -->
+		<setting id="org.eclipse.jdt.core.formatter.tabulation.char" value="tab"/>
+		<setting id="org.eclipse.jdt.core.formatter.tabulation.size" value="4"/>
+		<setting id="org.eclipse.jdt.core.formatter.indentation.size" value="4"/>
+		<!-- Una línea cortada sigue con doble sangría -->
+		<setting id="org.eclipse.jdt.core.formatter.continuation_indentation" value="2"/>
+		<setting id="org.eclipse.jdt.core.formatter.continuation_indentation_for_array_initializer" value="2"/>
+		<setting id="org.eclipse.jdt.core.formatter.lineSplit" value="120"/>
+		<setting id="org.eclipse.jdt.core.formatter.comment.line_length" value="120"/>
+		<!-- Respeta los cortes de línea hechos a mano en vez de volver a juntarlos -->
+		<setting id="org.eclipse.jdt.core.formatter.join_wrapped_lines" value="false"/>
+		<!-- Un valor de enum por línea -->
+		<setting id="org.eclipse.jdt.core.formatter.alignment_for_enum_constants" value="49"/>
+		<!-- Líneas en blanco -->
+		<setting id="org.eclipse.jdt.core.formatter.blank_lines_before_first_class_body_declaration" value="1"/>
+		<setting id="org.eclipse.jdt.core.formatter.blank_lines_before_method" value="1"/>
+		<setting id="org.eclipse.jdt.core.formatter.blank_lines_before_field" value="0"/>
+		<setting id="org.eclipse.jdt.core.formatter.blank_lines_before_member_type" value="1"/>
+		<setting id="org.eclipse.jdt.core.formatter.number_of_blank_lines_at_beginning_of_method_body" value="1"/>
+		<setting id="org.eclipse.jdt.core.formatter.number_of_blank_lines_at_end_of_method_body" value="1"/>
+		<setting id="org.eclipse.jdt.core.formatter.number_of_empty_lines_to_preserve" value="1"/>
+	</profile>
+</profiles>
