@@ -23,12 +23,15 @@ class HealthEndpointTests {
 
 	@Test
 	void showsOnlyStatusWithoutAuthentication() throws Exception {
-		HttpRequest request = HttpRequest.newBuilder(URI.create("http://localhost:" + port + "/actuator/health")).build();
+
+		HttpRequest request = HttpRequest.newBuilder(URI.create("http://localhost:" + port + "/actuator/health"))
+				.build();
 
 		HttpResponse<String> response = HttpClient.newHttpClient().send(request, HttpResponse.BodyHandlers.ofString());
 
 		assertThat(response.statusCode()).isEqualTo(200);
 		assertThat(response.body()).isEqualTo("{\"status\":\"UP\"}");
+
 	}
 
 }

@@ -17,10 +17,12 @@ class FlywayMigrationTests {
 
 	@Test
 	void appliesBaselineOnStartup() {
+
 		Boolean success = jdbcTemplate.queryForObject(
 				"SELECT success FROM flyway_schema_history WHERE version = '1'", Boolean.class);
 
 		assertThat(success).isTrue();
+
 	}
 
 }

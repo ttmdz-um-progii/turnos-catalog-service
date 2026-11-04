@@ -10,6 +10,7 @@ class CatalogServiceApplicationTests {
 
 	@Test
 	void contextLoads() {
+
 	}
 
 }
