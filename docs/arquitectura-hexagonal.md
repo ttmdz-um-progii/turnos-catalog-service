@@ -111,6 +111,13 @@ Cada regla va con su motivo. Romper una es un error, aunque compile.
       | `XxxRequest` | `@NoArgsConstructor` y `@Setter` | Jackson crea el objeto vacío y asigna cada campo al leer el body |
       | `XxxResponse` | `@Getter` | Jackson lee los getters para escribir el JSON |
 
+**DTO de sistemas externos**
+
+27. Los DTO que reciben datos de un sistema externo (`XxxRedisDto`, `XxxApiResponse`) son `record` de Java, **NUNCA** una clase con Lombok. Un `record` declara sus campos en una línea; Java genera el constructor y un método de lectura por campo (`xxxDto.name()`, sin `get`). Jackson lo crea por ese constructor, así que no hace falta `@NoArgsConstructor` ni `@Setter`, y queda inmutable: nadie puede cambiar lo que llegó de afuera.
+    - Los componentes copian la forma exacta del JSON externo: mismos nombres en `camelCase` y solo los campos que el servicio usa. Jackson ignora los demás (por ejemplo, `createdAt`).
+    - El `record` no valida: las invariantes las controla el modelo cuando el mapper lo construye (reglas 13 y 17).
+    - Vale solo para lo que **llega** de un sistema externo. Los DTO web propios (`XxxRequest`, `XxxResponse`) siguen la regla 26.
+
 ## 3. Organización en módulos
 
 - **Un módulo por concepto** del negocio, como carpeta directa bajo `<base>`: `<base>/xxx/`, `<base>/yyy/`.
@@ -172,6 +179,7 @@ shared.*         ──NUNCA──▶       ningún otro módulo
     │   ├── config/         XxxRestConfig.java             (bean de RestClient, si hace falta)
     │   └── adapter/        RestXxxSourceAdapter.java
     ├── redis/              adaptador de salida a Redis
+    │   ├── dto/            XxxRedisDto.java
     │   ├── mapper/         XxxRedisMapper.java
     │   └── adapter/        RedisXxxSourceAdapter.java
     ├── kafka/              adaptador de entrada desde Kafka
@@ -195,6 +203,7 @@ Solo existen las carpetas de las tecnologías que el módulo usa. Para una tecno
 | Excepción | `application/exception` | `XxxNotFoundException`, `<Motivo>Exception` | ninguna | `java.*` |
 | Controlador | `infrastructure/web/controller` | `XxxController` | `@RestController`, `@RequestMapping`, `@RequiredArgsConstructor` | puertos `in`, `XxxDtoMapper`, DTO |
 | DTO web | `infrastructure/web/dto` | `XxxRequest` (sin id, con validaciones), `XxxResponse` (con id) | Request: `@NoArgsConstructor @Setter`; Response: `@Getter`; el resto según la regla 26 | `jakarta.validation` |
+| DTO externo | `infrastructure/<tecnologia>/dto` | `XxxRedisDto`, `XxxApiResponse` | `record`, sin Lombok (regla 27) | `java.*` |
 | Mapper web | `infrastructure/web/mapper` | `XxxDtoMapper`: `toDomain`, `toResponse` | `@Component` | modelo, DTO |
 | Handler de errores | `infrastructure/web/exception` | `XxxExceptionHandler` | `@RestControllerAdvice(assignableTypes = XxxController.class)` | excepciones del módulo |
 | Entidad JPA | `infrastructure/persistence/entity` | `XxxEntity` | `@Entity @Table @NoArgsConstructor`; el resto según la regla 26 | `jakarta.persistence` |
@@ -241,7 +250,7 @@ Se trabaja siempre **de adentro hacia afuera**: dominio → aplicación → infr
 **De salida (REST externo, Redis):**
 
 1. El puerto va primero: `domain/ports/out/XxxSource.java`, con tipos del dominio en parámetros y retornos. **NUNCA** DTO de la tecnología en la firma.
-2. `infrastructure/<tecnologia>/dto/` con la forma exacta de lo que devuelve el sistema externo.
+2. `infrastructure/<tecnologia>/dto/` con la forma exacta de lo que devuelve el sistema externo, como `record` (regla 27).
 3. `infrastructure/<tecnologia>/mapper/` de DTO externo a modelo de dominio.
 4. `infrastructure/<tecnologia>/adapter/<Tecnologia>XxxSourceAdapter implements XxxSource`. Traduce los errores de la tecnología a excepciones del módulo (en `application/exception`) decididas por el `code`.
 5. Las URLs y las credenciales salen de propiedades `${VARIABLE}` (regla 21). Si hace falta un bean de cliente, va en `infrastructure/<tecnologia>/config/`.
@@ -712,6 +721,9 @@ grep -rsn '@Autowired' $B
 
 # Regla 25: sin nombres genéricos ni de una letra en variables y lambdas (src/main y src/test)
 grep -rsnE '\b(data|result|value|item|entry|obj|tmp|list|map|set|[a-z])( ->|\) ->| = | : )' src/main/java src/test/java
+
+# Regla 27: los DTO de sistemas externos son record, sin Lombok
+grep -rsnE '^(public )?(final )?class |import lombok' $B/*/infrastructure/{redis,rest}/dto 2>/dev/null
 
 # Regla 5: entre módulos, solo domain.model y domain.ports.in (shared se puede usar entero)
 for m in $(ls -d $B/*/ 2>/dev/null | xargs -n1 basename); do
