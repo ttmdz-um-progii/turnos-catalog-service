@@ -50,17 +50,18 @@ Cada regla va con su motivo. Romper una es un error, aunque compile.
 
 **Modelo de dominio**
 
-13. El modelo valida sus invariantes en el constructor y lanza `IllegalArgumentException`. Lleva `@Getter`. **Toda forma de crearlo pasa por ese constructor**, y cuál se expone depende de cómo se usa el modelo:
+13. El modelo valida sus invariantes en el constructor y lanza `IllegalArgumentException`. **Toda forma de crearlo pasa por ese constructor**, y cuál se expone depende de cómo se usa el modelo:
 
     | Si el modelo… | Se crea con | Plantilla |
     | --- | --- | --- |
-    | Tiene varios campos que llegan de afuera (base, API, Redis) y los arma un mapper | `@Builder` sobre el constructor público | 7.1 |
+    | Tiene varios campos que llegan de afuera (base, API, Redis) y los arma un mapper | Constructor público; `@Builder` sobre ese constructor cuando se escribe el mapper que lo llama (regla 26) | 7.1 |
     | Es un conjunto cerrado de variantes, cada una con un significado de negocio | Fábricas estáticas con nombre de negocio (`accepted()`, `rejected(reason)`) y constructor `private`, sin `@Builder` | 7.1b |
     | Tiene uno o dos campos que no se pueden confundir de orden | Constructor público, sin `@Builder` | — |
 
     - **NUNCA** `@Builder` sobre la clase: genera su propio constructor y saltea las validaciones.
     - Las fábricas existen para que una combinación inválida no se pueda escribir. Si el constructor o un builder siguen siendo públicos, ese beneficio se pierde.
-    - Si no está claro qué caso aplica, se usa `@Builder` sobre el constructor.
+    - Si no está claro qué caso aplica, constructor público.
+    - Los getters siguen la regla 26: se agregan los que algún código lee.
 14. **NUNCA** `@Setter`, `@Data` ni `@NoArgsConstructor` en `domain`. Los cambios de estado se hacen con métodos con nombre de negocio (`changeXxx`, `disable`).
 15. Una regla de negocio sin tecnología (cálculos, decisiones) va en `domain/model`, como clase o método, y se prueba con un test unitario puro. El `UseCaseImpl` la usa para orquestar los puertos; no la reescribe.
 
@@ -93,6 +94,23 @@ Cada regla va con su motivo. Romper una es un error, aunque compile.
     - Un parámetro conserva su nombre en toda la cadena de llamadas: si se llama `yyyIdsByType` en el caso de uso, se llama igual en la regla y en los tests.
     - Los comentarios nombran los valores igual que el código. Las letras o abreviaturas de una issue o del anexo (`L`, `C`, `{v}`) no se usan: se escribe `localVersion < oldestVersion`, no `L < O`.
 
+**Lombok**
+
+26. **Una anotación de Lombok se agrega solo cuando hay código que usa lo que genera, y en el mismo cambio que ese código. NUNCA "por si después hace falta".** Vale para todas las piezas: modelo, entidad y DTO. Un getter, un builder o un setter que nadie llama es API pública sin dueño: hay que mantenerla, habilita usos que nadie diseñó (un setter en una entidad que solo se lee) y obliga a quien lee a buscar llamadas que no existen.
+    - **Qué cuenta como uso:** código de `src/main`, o un test que lo necesita para probar otro comportamiento. Un test cuyo único fin es ejercitar lo generado (por ejemplo, que `builder()` arma el objeto) no justifica la anotación.
+    - **`@Getter`:** sobre la clase si se leen todos los campos; si se leen algunos, sobre cada campo leído.
+    - **`@Builder`:** se agrega con el primer código que lo llama, normalmente el mapper (regla 17). Hasta entonces alcanza el constructor.
+    - **`@Setter`:** solo fuera de `domain` (regla 14), y solo en la entidad cuyo adaptador la modifica (`update`, regla 18).
+    - **`@AllArgsConstructor`:** solo acompañando a `@Builder` en una entidad o un DTO que también tiene `@NoArgsConstructor`, porque el builder lo necesita para construir.
+    - **Al quitar el último uso, se quita la anotación** en el mismo cambio.
+    - **Excepciones:** lo que exige un framework se pone siempre, aunque ningún código nuestro lo llame:
+
+      | Pieza | Lleva siempre | Por qué |
+      | --- | --- | --- |
+      | `XxxEntity` | `@NoArgsConstructor` | JPA crea la entidad con un constructor sin argumentos al leerla de la base |
+      | `XxxRequest` | `@NoArgsConstructor` y `@Setter` | Jackson crea el objeto vacío y asigna cada campo al leer el body |
+      | `XxxResponse` | `@Getter` | Jackson lee los getters para escribir el JSON |
+
 ## 3. Organización en módulos
 
 - **Un módulo por concepto** del negocio, como carpeta directa bajo `<base>`: `<base>/xxx/`, `<base>/yyy/`.
@@ -121,7 +139,7 @@ shared.*         ──NUNCA──▶       ningún otro módulo
 ```
 
 - Si `yyy` necesita leer o modificar algo de `xxx`, lo pide por un puerto de entrada de `xxx`. Si ese puerto no existe, se crea en `xxx` (receta B).
-- **NUNCA** dos módulos que se usen mutuamente (ciclo). Si aparece uno, preguntar.
+- Dos módulos se pueden usar mutuamente, siempre que cada uno use del otro solo `domain.model` y `domain.ports.in`. Lo que no puede haber es un ciclo entre beans: si dos `UseCaseImpl` se inyectan entre sí, Spring no arranca.
 - **Cada tabla tiene un único módulo escritor.** Otro módulo puede leer esa misma tabla con su propia entidad JPA, pero solo lectura, y nunca importando la entidad del escritor. Qué módulo escribe cada tabla lo fija el diseño del servicio.
 - Si una operación tiene que escribir en varios módulos dentro de **una misma transacción**, preguntar antes de implementarla: es una decisión de diseño.
 
@@ -169,17 +187,17 @@ Solo existen las carpetas de las tecnologías que el módulo usa. Para una tecno
 
 | Pieza | Carpeta | Nombre | Anotaciones | Puede depender de |
 | --- | --- | --- | --- | --- |
-| Modelo | `domain/model` | `Xxx` | `@Getter`; creación según la regla 13 | `java.*`, Lombok, otros modelos |
+| Modelo | `domain/model` | `Xxx` | creación según la regla 13; Lombok según la regla 26 | `java.*`, Lombok, otros modelos |
 | Puerto de entrada | `domain/ports/in` | `<Verbo>XxxUseCase`, un método `<verbo>Xxx(...)` | ninguna | modelo |
 | Puerto de salida (base) | `domain/ports/out` | `XxxRepository` | ninguna | modelo |
 | Puerto de salida (otro) | `domain/ports/out` | `XxxSource` (lee de afuera), `XxxWriter` (escritura masiva), `XxxPublisher` (publica) | ninguna | modelo |
 | Caso de uso | `application/usecases` | `<Verbo>XxxUseCaseImpl` | `@Component`, `@RequiredArgsConstructor` | puertos `in` y `out` del módulo, modelo, puertos `in` de otros módulos |
 | Excepción | `application/exception` | `XxxNotFoundException`, `<Motivo>Exception` | ninguna | `java.*` |
 | Controlador | `infrastructure/web/controller` | `XxxController` | `@RestController`, `@RequestMapping`, `@RequiredArgsConstructor` | puertos `in`, `XxxDtoMapper`, DTO |
-| DTO web | `infrastructure/web/dto` | `XxxRequest` (sin id, con validaciones), `XxxResponse` (con id) | `@Getter @Setter @Builder @NoArgsConstructor @AllArgsConstructor` | `jakarta.validation` |
+| DTO web | `infrastructure/web/dto` | `XxxRequest` (sin id, con validaciones), `XxxResponse` (con id) | Request: `@NoArgsConstructor @Setter`; Response: `@Getter`; el resto según la regla 26 | `jakarta.validation` |
 | Mapper web | `infrastructure/web/mapper` | `XxxDtoMapper`: `toDomain`, `toResponse` | `@Component` | modelo, DTO |
 | Handler de errores | `infrastructure/web/exception` | `XxxExceptionHandler` | `@RestControllerAdvice(assignableTypes = XxxController.class)` | excepciones del módulo |
-| Entidad JPA | `infrastructure/persistence/entity` | `XxxEntity` | `@Entity @Table` + Lombok como el DTO | `jakarta.persistence` |
+| Entidad JPA | `infrastructure/persistence/entity` | `XxxEntity` | `@Entity @Table @NoArgsConstructor`; el resto según la regla 26 | `jakarta.persistence` |
 | Repositorio Spring Data | `infrastructure/persistence/repository` | `JpaXxxRepository extends JpaRepository<XxxEntity, Long>` | ninguna | entidad |
 | Mapper de persistencia | `infrastructure/persistence/mapper` | `XxxMapper`: `toEntity`, `toDomainModel` | `@Component` | modelo, entidad |
 | Adaptador de persistencia | `infrastructure/persistence/adapter` | `JpaXxxRepositoryAdapter implements XxxRepository` | `@Component`, `@RequiredArgsConstructor`, `@Transactional` por método | puerto `out`, repositorio JPA, mapper |
@@ -248,6 +266,8 @@ Orden: modelo (campo + validación) → entidad → `XxxMapper` (las dos direcci
 ## 7. Plantillas
 
 Son ilustrativas: los campos `description` y `price` se reemplazan por los del concepto. Indentación con tabs, como el resto del repo.
+
+Muestran un módulo completo, donde el mapper, el adaptador y el controlador usan todo lo que las plantillas generan. Una pieza real lleva solo las anotaciones de Lombok que su código usa (regla 26): una entidad que nadie modifica no lleva `@Setter`, y un modelo que todavía no arma ningún mapper no lleva `@Builder`.
 
 ### 7.1 Modelo
 
@@ -707,6 +727,7 @@ Para terminar:
 - [ ] Todos los comandos de arriba no devuelven nada.
 - [ ] `./mvnw test` termina en `BUILD SUCCESS`. `contextLoads` falla si falta un bean, si un puerto tiene dos implementaciones o si hay un ciclo.
 - [ ] Cada `UseCaseImpl` nuevo tiene su test unitario con fake.
+- [ ] Cada anotación de Lombok agregada o que quedó en un archivo tocado tiene un uso en el código (regla 26). Se revisa a mano: el IDE muestra las llamadas a un getter o a `builder()`.
 - [ ] Ninguna migración ya commiteada cambió: `git diff --name-only develop -- src/main/resources/db/migration` solo muestra archivos nuevos.
 
 ## Requisitos del proyecto
