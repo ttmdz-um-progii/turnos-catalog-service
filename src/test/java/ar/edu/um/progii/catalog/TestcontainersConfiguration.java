@@ -3,7 +3,7 @@ package ar.edu.um.progii.catalog;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
 import org.springframework.context.annotation.Bean;
-import org.springframework.test.context.DynamicPropertyRegistrar;
+import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 
 // Cada corrida de tests levanta su propio PostgreSQL, la misma versión que Compose
@@ -18,11 +18,13 @@ public class TestcontainersConfiguration {
 
 	}
 
-	// Los tests no usan la cátedra: un Redis inexistente, aunque haya un .env local
+	// Un Redis propio en lugar del de la cátedra, aunque haya un .env local. Los tests lo cargan con los datos de
+	// ejemplo del anexo
 	@Bean
-	DynamicPropertyRegistrar catalogSourcesUnavailable() {
+	@ServiceConnection(name = "redis")
+	GenericContainer<?> redisContainer() {
 
-		return registry -> registry.add("spring.data.redis.host", () -> "redis.invalid");
+		return new GenericContainer<>("redis:7.4").withExposedPorts(6379);
 
 	}
 
