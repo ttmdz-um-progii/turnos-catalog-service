@@ -3,7 +3,7 @@ package ar.edu.um.progii.catalog.sync.domain.model;
 import java.time.Instant;
 
 // Estado actual de la réplica del catálogo: qué versión tiene aplicada, cómo está y cómo le fue a la última ejecución
-public class CatalogSyncState {
+public class SyncState {
 
 	// Versión de la cátedra que tiene aplicada la réplica. Null = nunca sincronizado
 	private final Long appliedVersion;
@@ -17,7 +17,7 @@ public class CatalogSyncState {
 	private final String lastErrorCode;
 	private final String lastErrorMessage;
 
-	public CatalogSyncState(Long appliedVersion, Long remoteVersion, SyncStatus status, Instant lastSuccessAt,
+	public SyncState(Long appliedVersion, Long remoteVersion, SyncStatus status, Instant lastSuccessAt,
 			Instant lastAttemptAt, Instant lastFullSyncAt, int consecutiveFailures, String lastErrorCode,
 			String lastErrorMessage) {
 
