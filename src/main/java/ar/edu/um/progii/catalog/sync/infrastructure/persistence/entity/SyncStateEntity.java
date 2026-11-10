@@ -13,9 +13,9 @@ import lombok.NoArgsConstructor;
 
 @Getter
 @Entity
-@Table(name = "catalog_sync_state")
+@Table(name = "sync_state")
 @NoArgsConstructor
-public class CatalogSyncStateEntity {
+public class SyncStateEntity {
 
 	// Siempre 1: la tabla tiene una sola fila, que inserta la migración
 	@Id

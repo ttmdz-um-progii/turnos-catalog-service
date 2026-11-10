@@ -5,13 +5,13 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import org.junit.jupiter.api.Test;
 
-class CatalogSyncStateTest {
+class SyncStateTest {
 
 	// El estado con el que arranca la réplica: nunca sincronizada y sin fechas ni errores
 	@Test
 	void acceptsTheNeverSyncedState() {
 
-		assertThatCode(() -> new CatalogSyncState(null, null, SyncStatus.EMPTY, null, null, null, 0, null, null))
+		assertThatCode(() -> new SyncState(null, null, SyncStatus.EMPTY, null, null, null, 0, null, null))
 				.doesNotThrowAnyException();
 
 	}
@@ -19,7 +19,7 @@ class CatalogSyncStateTest {
 	@Test
 	void rejectsNullStatus() {
 
-		assertThatThrownBy(() -> new CatalogSyncState(null, null, null, null, null, null, 0, null, null))
+		assertThatThrownBy(() -> new SyncState(null, null, null, null, null, null, 0, null, null))
 				.isInstanceOf(IllegalArgumentException.class);
 
 	}
@@ -27,7 +27,7 @@ class CatalogSyncStateTest {
 	@Test
 	void rejectsNegativeConsecutiveFailures() {
 
-		assertThatThrownBy(() -> new CatalogSyncState(null, null, SyncStatus.EMPTY, null, null, null, -1, null, null))
+		assertThatThrownBy(() -> new SyncState(null, null, SyncStatus.EMPTY, null, null, null, -1, null, null))
 				.isInstanceOf(IllegalArgumentException.class);
 
 	}

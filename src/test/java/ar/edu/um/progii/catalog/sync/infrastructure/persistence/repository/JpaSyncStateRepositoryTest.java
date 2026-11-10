@@ -11,21 +11,21 @@ import org.springframework.transaction.annotation.Transactional;
 
 import ar.edu.um.progii.catalog.TestcontainersConfiguration;
 import ar.edu.um.progii.catalog.sync.domain.model.SyncStatus;
-import ar.edu.um.progii.catalog.sync.infrastructure.persistence.entity.CatalogSyncStateEntity;
+import ar.edu.um.progii.catalog.sync.infrastructure.persistence.entity.SyncStateEntity;
 
 @Import(TestcontainersConfiguration.class)
 @SpringBootTest
 @Transactional
-class JpaCatalogSyncStateRepositoryTest {
+class JpaSyncStateRepositoryTest {
 
 	@Autowired
-	private JpaCatalogSyncStateRepository jpaCatalogSyncStateRepository;
+	private JpaSyncStateRepository jpaSyncStateRepository;
 
 	// La migración deja la única fila con la réplica nunca sincronizada
 	@Test
 	void readsTheInitialStateLeftByTheMigration() {
 
-		CatalogSyncStateEntity syncState = jpaCatalogSyncStateRepository.findById((short) 1).orElseThrow();
+		SyncStateEntity syncState = jpaSyncStateRepository.findById((short) 1).orElseThrow();
 
 		assertThat(syncState.getId()).isEqualTo((short) 1);
 		assertThat(syncState.getAppliedVersion()).isNull();
