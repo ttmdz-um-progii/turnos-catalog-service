@@ -1,8 +1,10 @@
 package ar.edu.um.progii.catalog.professional.domain.model;
 
+import lombok.Builder;
 import lombok.Getter;
 
 // Un profesional del catálogo de la cátedra. Sus horarios semanales son WeeklySchedule, unidos por professionalId
+@Getter
 public class Professional {
 
 	// Id que asigna la cátedra
@@ -11,10 +13,10 @@ public class Professional {
 	private final String firstName;
 	private final String lastName;
 	// Nombre y apellido normalizados para buscar (SearchNameNormalizer)
-	@Getter
 	private final String searchName;
 	private final boolean enabled;
 
+	@Builder
 	public Professional(long id, long categoryId, String firstName, String lastName, boolean enabled) {
 
 		this.id = id;
