@@ -2,8 +2,11 @@ package ar.edu.um.progii.catalog.professional.domain.model;
 
 import java.time.DayOfWeek;
 import java.time.LocalTime;
+import lombok.Builder;
+import lombok.Getter;
 
 // Un horario semanal de atención de un profesional: un día, una franja y la duración de cada turno
+@Getter
 public class WeeklySchedule {
 
 	// Id que asigna la cátedra
@@ -16,6 +19,7 @@ public class WeeklySchedule {
 	private final int slotDurationMinutes;
 	private final boolean enabled;
 
+	@Builder
 	public WeeklySchedule(long id, long professionalId, DayOfWeek dayOfWeek, LocalTime startTime, LocalTime endTime,
 			int slotDurationMinutes, boolean enabled) {
 

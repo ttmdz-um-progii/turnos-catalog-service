@@ -1,6 +1,10 @@
 package ar.edu.um.progii.catalog.category.domain.model;
 
+import lombok.Builder;
+import lombok.Getter;
+
 // Una categoría de profesionales del catálogo de la cátedra (por ejemplo, clínica médica)
+@Getter
 public class ProfessionalCategory {
 
 	// Id que asigna la cátedra
@@ -10,6 +14,7 @@ public class ProfessionalCategory {
 	private final String description;
 	private final boolean enabled;
 
+	@Builder
 	public ProfessionalCategory(long id, String name, String description, boolean enabled) {
 
 		this.id = id;
