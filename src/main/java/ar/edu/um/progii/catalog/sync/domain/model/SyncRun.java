@@ -1,8 +1,11 @@
 package ar.edu.um.progii.catalog.sync.domain.model;
 
 import java.time.Instant;
+import lombok.Builder;
+import lombok.Getter;
 
 // Una ejecución de la sincronización: qué la disparó, cómo sincronizó, entre qué versiones y cómo terminó
+@Getter
 public class SyncRun {
 
 	// Null hasta que se guarda: lo genera el registro de ejecuciones
@@ -21,6 +24,7 @@ public class SyncRun {
 	private final String errorCode;
 	private final String errorMessage;
 
+	@Builder
 	public SyncRun(Long id, SyncTrigger triggerSource, String eventId, SyncMode mode, Long fromVersion, Long toVersion,
 			SyncRunResult runResult, int entitiesApplied, Instant startedAt, Instant finishedAt, String errorCode,
 			String errorMessage) {
