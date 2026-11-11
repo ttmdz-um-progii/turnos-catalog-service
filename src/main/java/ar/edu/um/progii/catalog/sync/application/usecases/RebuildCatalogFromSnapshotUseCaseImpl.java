@@ -33,14 +33,14 @@ public class RebuildCatalogFromSnapshotUseCaseImpl implements RebuildCatalogFrom
 	private final CatalogReplicaWriter catalogReplicaWriter;
 
 	@Override
-	public SyncRun rebuildCatalogFromSnapshot(SyncTrigger trigger) {
+	public void rebuildCatalogFromSnapshot(SyncTrigger trigger) {
 
 		// Llamado desde la incremental, que ya tiene el lock, lo vuelve a obtener: el lock admite volver a tomarlo
 		if (!syncLock.tryAcquire()) {
 			throw new SyncAlreadyRunningException("Another synchronization is writing the catalog");
 		}
 		try {
-			return rebuild(trigger);
+			rebuild(trigger);
 		} finally {
 			syncLock.release();
 		}
@@ -48,7 +48,7 @@ public class RebuildCatalogFromSnapshotUseCaseImpl implements RebuildCatalogFrom
 	}
 
 	// Si algo falla, registra la falla y relanza la excepción, para que quien llamó sepa por qué
-	private SyncRun rebuild(SyncTrigger trigger) {
+	private void rebuild(SyncTrigger trigger) {
 
 		Instant startedAt = Instant.now();
 		SyncState currentState = syncStateRepository.findCurrent();
@@ -67,7 +67,6 @@ public class RebuildCatalogFromSnapshotUseCaseImpl implements RebuildCatalogFrom
 					.build();
 			catalogReplicaWriter.replaceAll(catalogSnapshot,
 					currentState.afterSnapshotApplied(catalogSnapshot.getSnapshotVersion(), appliedAt), successfulRun);
-			return successfulRun;
 		} catch (CatalogSourceUnavailableException unavailableException) {
 			recordFailure(trigger, currentState, startedAt, SyncErrorCode.CATALOG_SOURCE_UNAVAILABLE,
 					unavailableException);
@@ -101,7 +100,7 @@ public class RebuildCatalogFromSnapshotUseCaseImpl implements RebuildCatalogFrom
 				.errorCode(errorCode.name())
 				.errorMessage(failureException.getMessage())
 				.build();
-		catalogReplicaWriter.recordFailure(
+		catalogReplicaWriter.recordRun(
 				currentState.afterFailure(errorCode, failureException.getMessage(), failedAt), failedRun);
 
 	}

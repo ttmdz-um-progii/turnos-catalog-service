@@ -12,6 +12,7 @@ import ar.edu.um.progii.catalog.sync.application.exception.InvalidCatalogSnapsho
 import ar.edu.um.progii.catalog.sync.application.exception.ReplicaWriteFailedException;
 import ar.edu.um.progii.catalog.sync.application.exception.SyncAlreadyRunningException;
 import ar.edu.um.progii.catalog.sync.domain.model.CatalogSnapshot;
+import ar.edu.um.progii.catalog.sync.domain.model.CurrentCatalogEntities;
 import ar.edu.um.progii.catalog.sync.domain.model.SyncMode;
 import ar.edu.um.progii.catalog.sync.domain.model.SyncRun;
 import ar.edu.um.progii.catalog.sync.domain.model.SyncRunResult;
@@ -23,7 +24,6 @@ import ar.edu.um.progii.catalog.sync.domain.ports.out.CatalogSnapshotSource;
 import ar.edu.um.progii.catalog.sync.domain.ports.out.SyncLock;
 import ar.edu.um.progii.catalog.sync.domain.ports.out.SyncStateRepository;
 import java.time.DayOfWeek;
-import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalTime;
 import java.util.List;
@@ -46,12 +46,6 @@ class RebuildCatalogFromSnapshotUseCaseImplTest {
 			}
 			acquisitions++;
 			return true;
-
-		}
-
-		public boolean tryAcquire(Duration maxWait) {
-
-			return tryAcquire();
 
 		}
 
@@ -112,10 +106,19 @@ class RebuildCatalogFromSnapshotUseCaseImplTest {
 
 		}
 
-		public void recordFailure(SyncState stateAfterFailure, SyncRun failedRun) {
+		// La reconstrucción nunca aplica cambios sueltos
+		public void applyChanges(CurrentCatalogEntities currentCatalogEntities, SyncState stateAfterChanges,
+				SyncRun successfulRun) {
 
-			this.stateAfterFailure = stateAfterFailure;
-			this.failedRun = failedRun;
+			throw new UnsupportedOperationException("The rebuild never applies changes");
+
+		}
+
+		// La reconstrucción solo registra así sus fallas
+		public void recordRun(SyncState stateAfterRun, SyncRun recordedRun) {
+
+			this.stateAfterFailure = stateAfterRun;
+			this.failedRun = recordedRun;
 
 		}
 	}
@@ -142,18 +145,18 @@ class RebuildCatalogFromSnapshotUseCaseImplTest {
 		syncStateRepository.currentState = NEVER_SYNCED_STATE;
 		catalogSnapshotSource.catalogSnapshotToReturn = SNAPSHOT_VERSION_7;
 
-		SyncRun returnedRun = rebuildCatalogFromSnapshotUseCase.rebuildCatalogFromSnapshot(SyncTrigger.STARTUP);
+		rebuildCatalogFromSnapshotUseCase.rebuildCatalogFromSnapshot(SyncTrigger.STARTUP);
 
 		assertThat(catalogReplicaWriter.replacedSnapshot).isSameAs(SNAPSHOT_VERSION_7);
 		assertThat(catalogReplicaWriter.stateAfterSnapshot.getAppliedVersion()).isEqualTo(7L);
 		assertThat(catalogReplicaWriter.stateAfterSnapshot.getStatus()).isEqualTo(SyncStatus.IN_SYNC);
-		assertThat(returnedRun).isSameAs(catalogReplicaWriter.successfulRun);
-		assertThat(returnedRun.getTriggerSource()).isEqualTo(SyncTrigger.STARTUP);
-		assertThat(returnedRun.getMode()).isEqualTo(SyncMode.FULL);
-		assertThat(returnedRun.getRunResult()).isEqualTo(SyncRunResult.SUCCESS);
-		assertThat(returnedRun.getFromVersion()).isNull();
-		assertThat(returnedRun.getToVersion()).isEqualTo(7L);
-		assertThat(returnedRun.getEntitiesApplied()).isEqualTo(3);
+		SyncRun successfulRun = catalogReplicaWriter.successfulRun;
+		assertThat(successfulRun.getTriggerSource()).isEqualTo(SyncTrigger.STARTUP);
+		assertThat(successfulRun.getMode()).isEqualTo(SyncMode.FULL);
+		assertThat(successfulRun.getRunResult()).isEqualTo(SyncRunResult.SUCCESS);
+		assertThat(successfulRun.getFromVersion()).isNull();
+		assertThat(successfulRun.getToVersion()).isEqualTo(7L);
+		assertThat(successfulRun.getEntitiesApplied()).isEqualTo(3);
 		assertThat(catalogReplicaWriter.failedRun).isNull();
 		assertThat(syncLock.releases).isEqualTo(syncLock.acquisitions).isEqualTo(1);
 

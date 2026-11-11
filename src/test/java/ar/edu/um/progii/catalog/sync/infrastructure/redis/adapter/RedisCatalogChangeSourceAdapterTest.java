@@ -19,7 +19,9 @@ import ar.edu.um.progii.catalog.sync.infrastructure.redis.mapper.CatalogRedisMap
 import java.io.IOException;
 import java.net.ServerSocket;
 import java.time.DayOfWeek;
+import java.time.Duration;
 import java.time.LocalTime;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
@@ -34,8 +36,9 @@ import org.springframework.data.redis.connection.lettuce.LettuceConnectionFactor
 import org.springframework.data.redis.core.StringRedisTemplate;
 import tools.jackson.databind.json.JsonMapper;
 
-// Corre contra el Redis de TestcontainersConfiguration, cargado con los datos de ejemplo del anexo (§14)
-@SpringBootTest
+// Corre contra el Redis de TestcontainersConfiguration, cargado con los datos de ejemplo del anexo (§14). Las esperas
+// entre reintentos son cortas para que los casos de metadata faltante no tarden los 7 s reales
+@SpringBootTest(properties = "catedra.redis.retry-delays=10ms,10ms,10ms")
 @Import(TestcontainersConfiguration.class)
 class RedisCatalogChangeSourceAdapterTest {
 
@@ -229,7 +232,8 @@ class RedisCatalogChangeSourceAdapterTest {
 		unreachableConnectionFactory.afterPropertiesSet();
 		unreachableConnectionFactory.start();
 		RedisCatalogChangeSourceAdapter unreachableAdapter = new RedisCatalogChangeSourceAdapter(
-				new StringRedisTemplate(unreachableConnectionFactory), jsonMapper, catalogRedisMapper);
+				new StringRedisTemplate(unreachableConnectionFactory), jsonMapper, catalogRedisMapper,
+				List.of(Duration.ofMillis(10), Duration.ofMillis(10), Duration.ofMillis(10)));
 
 		try {
 			assertThatThrownBy(() -> unreachableAdapter.readVersions())

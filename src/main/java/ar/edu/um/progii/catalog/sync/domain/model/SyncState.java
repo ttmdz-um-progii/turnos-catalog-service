@@ -49,6 +49,23 @@ public class SyncState {
 
 	}
 
+	// El estado después de aplicar los cambios hasta currentVersion: la copia alcanzó la última versión publicada y la
+	// racha de fallas se corta. lastFullSyncAt no cambia, porque no se reemplazó la copia entera
+	public SyncState afterChangesApplied(long currentVersion, Instant appliedAt) {
+
+		return new SyncState(currentVersion, currentVersion, SyncStatus.IN_SYNC, appliedAt, appliedAt, lastFullSyncAt,
+				0, null, null);
+
+	}
+
+	// El estado después de una ejecución sin nada que aplicar: la copia ya tenía currentVersion o una posterior
+	public SyncState afterNoop(long currentVersion, Instant checkedAt) {
+
+		return new SyncState(appliedVersion, currentVersion, SyncStatus.IN_SYNC, checkedAt, checkedAt, lastFullSyncAt,
+				0, null, null);
+
+	}
+
 	// El estado después de una ejecución fallida: la copia y su versión no cambian. Credenciales rechazadas es ERROR
 	// porque no se resuelve sola; cualquier otra falla deja EMPTY si nunca hubo datos y DEGRADED si los hay
 	public SyncState afterFailure(SyncErrorCode errorCode, String errorMessage, Instant attemptedAt) {

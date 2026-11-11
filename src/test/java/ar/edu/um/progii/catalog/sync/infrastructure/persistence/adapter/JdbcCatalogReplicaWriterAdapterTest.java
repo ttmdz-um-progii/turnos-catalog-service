@@ -7,8 +7,11 @@ import ar.edu.um.progii.catalog.TestcontainersConfiguration;
 import ar.edu.um.progii.catalog.category.domain.model.ProfessionalCategory;
 import ar.edu.um.progii.catalog.professional.domain.model.Professional;
 import ar.edu.um.progii.catalog.professional.domain.model.WeeklySchedule;
+import ar.edu.um.progii.catalog.sync.application.exception.InconsistentChangesException;
 import ar.edu.um.progii.catalog.sync.application.exception.ReplicaWriteFailedException;
 import ar.edu.um.progii.catalog.sync.domain.model.CatalogSnapshot;
+import ar.edu.um.progii.catalog.sync.domain.model.CurrentCatalogEntities;
+import ar.edu.um.progii.catalog.sync.domain.model.IdsByEntityType;
 import ar.edu.um.progii.catalog.sync.domain.model.SyncErrorCode;
 import ar.edu.um.progii.catalog.sync.domain.model.SyncMode;
 import ar.edu.um.progii.catalog.sync.domain.model.SyncRun;
@@ -155,7 +158,7 @@ class JdbcCatalogReplicaWriterAdapterTest {
 				.errorMessage("Could not reach /api/synchronization/snapshot")
 				.build();
 
-		jdbcCatalogReplicaWriterAdapter.recordFailure(stateAfterVersion7.afterFailure(
+		jdbcCatalogReplicaWriterAdapter.recordRun(stateAfterVersion7.afterFailure(
 				SyncErrorCode.CATALOG_SOURCE_UNAVAILABLE, "Could not reach /api/synchronization/snapshot", NOW),
 				failedRun);
 
@@ -167,6 +170,76 @@ class JdbcCatalogReplicaWriterAdapterTest {
 		assertThat(jdbcTemplate.queryForList("SELECT result FROM sync_run ORDER BY id", String.class))
 				.containsExactly("SUCCESS", "FAILED");
 		assertThat(jdbcTemplate.queryForList("SELECT id FROM professional", Long.class)).containsExactly(15L);
+
+	}
+
+	@Test
+	void addsAndUpdatesTheChangedEntities() {
+
+		SyncState stateAfterVersion7 = NEVER_SYNCED_STATE.afterSnapshotApplied(7L, NOW);
+		jdbcCatalogReplicaWriterAdapter.replaceAll(SNAPSHOT_VERSION_7, stateAfterVersion7,
+				successfulRun(null, SNAPSHOT_VERSION_7));
+		// La versión 9 trae una categoría nueva, un profesional nuevo en ella y un cambio de apellido del 15
+		CurrentCatalogEntities changedEntities = new CurrentCatalogEntities(
+				List.of(new ProfessionalCategory(3L, "Pediatria", null, true)),
+				List.of(new Professional(22L, 3L, "Luis", "Perez", true),
+						new Professional(15L, 1L, "Ana", "Gómez Paz", true)),
+				List.of(), IdsByEntityType.empty());
+
+		jdbcCatalogReplicaWriterAdapter.applyChanges(changedEntities, stateAfterVersion7.afterChangesApplied(9L, NOW),
+				incrementalRun(7L, 9L, 3));
+
+		assertThat(jdbcTemplate.queryForList("SELECT id FROM professional ORDER BY id", Long.class))
+				.containsExactly(15L, 22L);
+		Map<String, Object> updatedProfessionalRow = jdbcTemplate
+				.queryForMap("SELECT * FROM professional WHERE id = 15");
+		assertThat(updatedProfessionalRow.get("last_name")).isEqualTo("Gómez Paz");
+		assertThat(updatedProfessionalRow.get("search_name")).isEqualTo("ana gomez paz");
+		// Lo que no cambió sigue igual
+		assertThat(jdbcTemplate.queryForList("SELECT id FROM weekly_schedule", Long.class)).containsExactly(21L);
+		Map<String, Object> syncStateRow = jdbcTemplate.queryForMap("SELECT * FROM sync_state");
+		assertThat(syncStateRow.get("applied_version")).isEqualTo(9L);
+		assertThat(syncStateRow.get("remote_version")).isEqualTo(9L);
+		assertThat(jdbcTemplate.queryForList("SELECT mode FROM sync_run ORDER BY id", String.class))
+				.containsExactly("FULL", "INCREMENTAL");
+
+	}
+
+	@Test
+	void keepsTheCopyWhenTheChangesBreakAReference() {
+
+		SyncState stateAfterVersion7 = NEVER_SYNCED_STATE.afterSnapshotApplied(7L, NOW);
+		jdbcCatalogReplicaWriterAdapter.replaceAll(SNAPSHOT_VERSION_7, stateAfterVersion7,
+				successfulRun(null, SNAPSHOT_VERSION_7));
+		// La categoría 3 no está en la copia ni viene en los cambios
+		CurrentCatalogEntities changesWithABrokenReference = new CurrentCatalogEntities(
+				List.of(new ProfessionalCategory(4L, "Dermatologia", null, true)),
+				List.of(new Professional(22L, 3L, "Luis", "Perez", true)), List.of(), IdsByEntityType.empty());
+
+		assertThatThrownBy(() -> jdbcCatalogReplicaWriterAdapter.applyChanges(changesWithABrokenReference,
+				stateAfterVersion7.afterChangesApplied(9L, NOW), incrementalRun(7L, 9L, 2)))
+				.isInstanceOf(InconsistentChangesException.class);
+
+		// La categoría 4 se insertó antes de fallar y el rollback también la deshizo
+		assertThat(jdbcTemplate.queryForList("SELECT id FROM professional_category", Long.class)).containsExactly(1L);
+		assertThat(jdbcTemplate.queryForList("SELECT id FROM professional", Long.class)).containsExactly(15L);
+		assertThat(jdbcTemplate.queryForObject("SELECT applied_version FROM sync_state", Long.class)).isEqualTo(7L);
+		assertThat(jdbcTemplate.queryForObject("SELECT count(*) FROM sync_run", Long.class)).isEqualTo(1L);
+
+	}
+
+	private static SyncRun incrementalRun(long fromVersion, long toVersion, int entitiesApplied) {
+
+		return SyncRun.builder()
+				.triggerSource(SyncTrigger.SCHEDULED)
+				.mode(SyncMode.INCREMENTAL)
+				.fromVersion(fromVersion)
+				.toVersion(toVersion)
+				.runResult(SyncRunResult.SUCCESS)
+				.entitiesApplied(entitiesApplied)
+				.startedAt(NOW)
+				.finishedAt(NOW)
+				.build();
 
 	}
 

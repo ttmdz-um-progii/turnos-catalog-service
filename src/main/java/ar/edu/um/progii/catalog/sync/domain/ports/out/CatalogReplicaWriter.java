@@ -1,6 +1,7 @@
 package ar.edu.um.progii.catalog.sync.domain.ports.out;
 
 import ar.edu.um.progii.catalog.sync.domain.model.CatalogSnapshot;
+import ar.edu.um.progii.catalog.sync.domain.model.CurrentCatalogEntities;
 import ar.edu.um.progii.catalog.sync.domain.model.SyncRun;
 import ar.edu.um.progii.catalog.sync.domain.model.SyncState;
 
@@ -11,6 +12,11 @@ public interface CatalogReplicaWriter {
 	// Reemplaza la copia entera por el snapshot y guarda el estado nuevo y la ejecución exitosa
 	void replaceAll(CatalogSnapshot catalogSnapshot, SyncState stateAfterSnapshot, SyncRun successfulRun);
 
-	// Guarda el estado tras una falla y la ejecución fallida, sin tocar la copia
-	void recordFailure(SyncState stateAfterFailure, SyncRun failedRun);
+	// Agrega o actualiza en la copia las entidades leídas del catálogo actual y guarda el estado nuevo y la ejecución
+	// exitosa. Si los cambios dejan una referencia rota, lanza InconsistentChangesException y no guarda nada
+	void applyChanges(CurrentCatalogEntities currentCatalogEntities, SyncState stateAfterChanges,
+			SyncRun successfulRun);
+
+	// Guarda el estado y la ejecución sin tocar la copia: una ejecución que no tenía nada que aplicar o que falló
+	void recordRun(SyncState stateAfterRun, SyncRun recordedRun);
 }

@@ -2,7 +2,6 @@ package ar.edu.um.progii.catalog.sync.infrastructure.lock.adapter;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import java.time.Duration;
 import java.util.concurrent.CompletableFuture;
 
 import org.junit.jupiter.api.Test;
@@ -32,10 +31,6 @@ class InMemorySyncLockAdapterTest {
 		assertThat(inMemorySyncLockAdapter.tryAcquire()).isTrue();
 
 		assertThat(tryAcquireFromAnotherSync()).isFalse();
-		boolean acquiredAfterWaiting = CompletableFuture
-				.supplyAsync(() -> inMemorySyncLockAdapter.tryAcquire(Duration.ofMillis(100)))
-				.join();
-		assertThat(acquiredAfterWaiting).isFalse();
 
 	}
 
