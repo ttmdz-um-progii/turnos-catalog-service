@@ -155,7 +155,7 @@ class JdbcCatalogReplicaWriterAdapterTest {
 				.errorMessage("Could not reach /api/synchronization/snapshot")
 				.build();
 
-		jdbcCatalogReplicaWriterAdapter.recordFailure(stateAfterVersion7.afterFailure(
+		jdbcCatalogReplicaWriterAdapter.recordRun(stateAfterVersion7.afterFailure(
 				SyncErrorCode.CATALOG_SOURCE_UNAVAILABLE, "Could not reach /api/synchronization/snapshot", NOW),
 				failedRun);
 

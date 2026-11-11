@@ -101,7 +101,7 @@ public class RebuildCatalogFromSnapshotUseCaseImpl implements RebuildCatalogFrom
 				.errorCode(errorCode.name())
 				.errorMessage(failureException.getMessage())
 				.build();
-		catalogReplicaWriter.recordFailure(
+		catalogReplicaWriter.recordRun(
 				currentState.afterFailure(errorCode, failureException.getMessage(), failedAt), failedRun);
 
 	}

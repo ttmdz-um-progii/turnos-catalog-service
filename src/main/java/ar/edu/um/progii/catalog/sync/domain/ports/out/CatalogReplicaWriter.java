@@ -11,6 +11,6 @@ public interface CatalogReplicaWriter {
 	// Reemplaza la copia entera por el snapshot y guarda el estado nuevo y la ejecución exitosa
 	void replaceAll(CatalogSnapshot catalogSnapshot, SyncState stateAfterSnapshot, SyncRun successfulRun);
 
-	// Guarda el estado tras una falla y la ejecución fallida, sin tocar la copia
-	void recordFailure(SyncState stateAfterFailure, SyncRun failedRun);
+	// Guarda el estado y la ejecución sin tocar la copia: una ejecución que no tenía nada que aplicar o que falló
+	void recordRun(SyncState stateAfterRun, SyncRun recordedRun);
 }

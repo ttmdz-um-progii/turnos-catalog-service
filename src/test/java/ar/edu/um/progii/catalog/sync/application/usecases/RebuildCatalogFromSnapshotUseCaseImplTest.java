@@ -112,10 +112,11 @@ class RebuildCatalogFromSnapshotUseCaseImplTest {
 
 		}
 
-		public void recordFailure(SyncState stateAfterFailure, SyncRun failedRun) {
+		// La reconstrucción solo registra así sus fallas
+		public void recordRun(SyncState stateAfterRun, SyncRun recordedRun) {
 
-			this.stateAfterFailure = stateAfterFailure;
-			this.failedRun = failedRun;
+			this.stateAfterFailure = stateAfterRun;
+			this.failedRun = recordedRun;
 
 		}
 	}

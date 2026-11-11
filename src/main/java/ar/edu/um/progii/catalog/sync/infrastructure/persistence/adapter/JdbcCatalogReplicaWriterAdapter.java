@@ -72,13 +72,14 @@ public class JdbcCatalogReplicaWriterAdapter implements CatalogReplicaWriter {
 
 	@Override
 	@Transactional
-	public void recordFailure(SyncState stateAfterFailure, SyncRun failedRun) {
+	public void recordRun(SyncState stateAfterRun, SyncRun recordedRun) {
 
 		try {
-			updateSyncState(stateAfterFailure);
-			insertSyncRun(failedRun);
+			updateSyncState(stateAfterRun);
+			insertSyncRun(recordedRun);
 		} catch (DataAccessException databaseException) {
-			throw new ReplicaWriteFailedException("Could not record the failed synchronization", databaseException);
+			throw new ReplicaWriteFailedException("Could not record the " + recordedRun.getRunResult()
+					+ " synchronization", databaseException);
 		}
 
 	}
