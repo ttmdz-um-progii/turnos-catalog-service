@@ -189,7 +189,7 @@ shared.*         ──NUNCA──▶       ningún otro módulo
     ├── kafka/              adaptador de entrada desde Kafka
     │   ├── dto/            XxxEvent.java
     │   └── listener/       XxxEventListener.java
-    └── scheduler/          adaptador de entrada por temporizador
+    └── scheduler/          adaptador de entrada por temporizador y al arrancar
         └── XxxScheduler.java
 ```
 
@@ -219,7 +219,7 @@ Solo existen las carpetas de las tecnologías que el módulo usa. Para una tecno
 | Adaptador Redis | `infrastructure/redis/adapter` | `RedisXxxSourceAdapter implements XxxSource` | `@Component`, `@RequiredArgsConstructor` | puerto `out`, cliente de Redis, mapper |
 | Adaptador en memoria | `infrastructure/lock/adapter` | `InMemoryXxxLockAdapter implements XxxLock` | `@Component` | puerto `out`, `java.util.concurrent` |
 | Listener de Kafka | `infrastructure/kafka/listener` | `XxxEventListener` | `@Component`, `@RequiredArgsConstructor`, `@KafkaListener` en el método | puertos `in`, DTO del evento |
-| Tarea programada | `infrastructure/scheduler` | `XxxScheduler` | `@Component`, `@RequiredArgsConstructor`, `@Scheduled` en el método | puertos `in` |
+| Tarea programada | `infrastructure/scheduler` | `XxxScheduler` | `@Component`, `@RequiredArgsConstructor`, `@Scheduled` en el método; `@EventListener(ApplicationReadyEvent.class)` en el que corre al arrancar | puertos `in` |
 | Migración | `src/main/resources/db/migration` | `V<n>__<descripcion>.sql` | — | — |
 
 ## 6. Recetas
@@ -266,6 +266,9 @@ Se trabaja siempre **de adentro hacia afuera**: dominio → aplicación → infr
 1. Llaman a un puerto `in` que ya existe, el mismo que usaría un controlador. **NUNCA** contienen lógica de negocio.
 2. El listener deserializa a `infrastructure/kafka/dto/XxxEvent`, lo traduce y llama al puerto. Es idempotente, y el offset se confirma después de persistir.
 3. La tarea programada solo dispara el puerto; el intervalo sale de una propiedad.
+    - Lo que corre al arrancar el servicio va en la misma clase, en un método con `@EventListener(ApplicationReadyEvent.class)`.
+    - Atrapa y loguea las excepciones del puerto, sin decidir nada con ellas. Una excepción que sale del arranque corta el inicio del servicio, y una que sale de `@Scheduled` solo ensucia el log.
+    - Si dispara solo, una propiedad `xxx.automatic-triggers-enabled` lo apaga con `@ConditionalOnProperty`. Los tests la ponen en `false` en `src/test/resources/config/application.properties`, que Spring carga además del principal.
 
 ### D. Agregar o cambiar un campo persistido
 
@@ -618,15 +621,30 @@ Los `code` de error salen del contrato documentado del servicio, no se inventan.
 ```java
 package ar.edu.um.progii.catalog.xxx.infrastructure.scheduler;
 
+@Slf4j
 @Component
 @RequiredArgsConstructor
+@ConditionalOnProperty(name = "xxx.automatic-triggers-enabled", havingValue = "true")
 public class XxxScheduler {
 
 	private final RefreshXxxUseCase refreshXxxUseCase;
 
-	@Scheduled(fixedDelayString = "${xxx.refresh-interval}")
-	public void run() {
-		refreshXxxUseCase.refreshXxx();
+	@EventListener(ApplicationReadyEvent.class)
+	public void refreshXxxOnStartup() {
+		refreshXxx();
+	}
+
+	@Scheduled(fixedDelayString = "${xxx.refresh-interval}", initialDelayString = "${xxx.refresh-interval}")
+	public void refreshXxxPeriodically() {
+		refreshXxx();
+	}
+
+	private void refreshXxx() {
+		try {
+			refreshXxxUseCase.refreshXxx();
+		} catch (RuntimeException refreshException) {
+			log.warn("Xxx refresh failed: {}", refreshException.getMessage());
+		}
 	}
 }
 ```
