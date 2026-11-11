@@ -47,6 +47,14 @@ public class SyncCatalogUseCaseImpl implements SyncCatalogUseCase {
 	private final CatalogReplicaWriter catalogReplicaWriter;
 	private final RebuildCatalogFromSnapshotUseCase rebuildCatalogFromSnapshotUseCase;
 
+	// Lo que pasó en una pasada. FINISHED corta la ejecución: no había nada que aplicar, o haría falta un segundo
+	// snapshot
+	private enum PassOutcome {
+		APPLIED_CHANGES,
+		APPLIED_SNAPSHOT,
+		FINISHED
+	}
+
 	// Lo que encontró la lectura de una pasada: qué hacer, hasta qué versión y, si es incremental, las entidades
 	private record PendingChanges(SyncDecision syncDecision, long currentVersion,
 			CurrentCatalogEntities currentCatalogEntities) {
@@ -61,11 +69,11 @@ public class SyncCatalogUseCaseImpl implements SyncCatalogUseCase {
 		try {
 			boolean snapshotApplied = false;
 			for (int passNumber = 1; passNumber <= MAX_PASSES; passNumber++) {
-				SyncAction passAction = runPass(trigger, passNumber == 1, snapshotApplied);
-				if (passAction == SyncAction.NOOP) {
+				PassOutcome passOutcome = runPass(trigger, passNumber == 1, snapshotApplied);
+				if (passOutcome == PassOutcome.FINISHED) {
 					return;
 				}
-				if (passAction == SyncAction.SNAPSHOT) {
+				if (passOutcome == PassOutcome.APPLIED_SNAPSHOT) {
 					snapshotApplied = true;
 				}
 			}
@@ -76,8 +84,7 @@ public class SyncCatalogUseCaseImpl implements SyncCatalogUseCase {
 
 	}
 
-	// Devuelve qué hizo la pasada. NOOP significa que no hay nada más que hacer en esta ejecución
-	private SyncAction runPass(SyncTrigger trigger, boolean firstPass, boolean snapshotApplied) {
+	private PassOutcome runPass(SyncTrigger trigger, boolean firstPass, boolean snapshotApplied) {
 
 		Instant startedAt = Instant.now();
 		SyncState currentState = syncStateRepository.findCurrent();
@@ -102,7 +109,7 @@ public class SyncCatalogUseCaseImpl implements SyncCatalogUseCase {
 				if (firstPass) {
 					recordNoop(trigger, currentState, startedAt, pendingChanges.currentVersion());
 				}
-				yield SyncAction.NOOP;
+				yield PassOutcome.FINISHED;
 			}
 			case SNAPSHOT -> rebuildFromSnapshot(trigger, snapshotApplied);
 			case INCREMENTAL -> applyChanges(trigger, currentState, startedAt, pendingChanges, snapshotApplied);
@@ -135,7 +142,7 @@ public class SyncCatalogUseCaseImpl implements SyncCatalogUseCase {
 
 	}
 
-	private SyncAction applyChanges(SyncTrigger trigger, SyncState currentState, Instant startedAt,
+	private PassOutcome applyChanges(SyncTrigger trigger, SyncState currentState, Instant startedAt,
 			PendingChanges pendingChanges, boolean snapshotApplied) {
 
 		CurrentCatalogEntities currentCatalogEntities = pendingChanges.currentCatalogEntities();
@@ -155,7 +162,7 @@ public class SyncCatalogUseCaseImpl implements SyncCatalogUseCase {
 		try {
 			catalogReplicaWriter.applyChanges(currentCatalogEntities,
 					currentState.afterChangesApplied(pendingChanges.currentVersion(), appliedAt), successfulRun);
-			return SyncAction.INCREMENTAL;
+			return PassOutcome.APPLIED_CHANGES;
 		} catch (InconsistentChangesException inconsistentChangesException) {
 			// No es una falla pasajera: la copia no se puede verificar y se vuelve al snapshot
 			log.warn("{}; rebuilding from the snapshot", inconsistentChangesException.getMessage());
@@ -170,14 +177,14 @@ public class SyncCatalogUseCaseImpl implements SyncCatalogUseCase {
 	// La reconstrucción registra su propio resultado, también si falla: su excepción solo se deja pasar. Un segundo
 	// snapshot en la misma ejecución no arreglaría nada, porque la cátedra sigue publicando lo mismo: se corta y la
 	// próxima ejecución vuelve a intentar
-	private SyncAction rebuildFromSnapshot(SyncTrigger trigger, boolean snapshotApplied) {
+	private PassOutcome rebuildFromSnapshot(SyncTrigger trigger, boolean snapshotApplied) {
 
 		if (snapshotApplied) {
 			log.warn("The catalog still needs a snapshot after applying one; stopping until the next synchronization");
-			return SyncAction.NOOP;
+			return PassOutcome.FINISHED;
 		}
 		rebuildCatalogFromSnapshotUseCase.rebuildCatalogFromSnapshot(trigger);
-		return SyncAction.SNAPSHOT;
+		return PassOutcome.APPLIED_SNAPSHOT;
 
 	}
 

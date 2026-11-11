@@ -1,8 +1,6 @@
 package ar.edu.um.progii.catalog.sync.infrastructure.lock.adapter;
 
 import ar.edu.um.progii.catalog.sync.domain.ports.out.SyncLock;
-import java.time.Duration;
-import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.ReentrantLock;
 import org.springframework.stereotype.Component;
 
@@ -18,19 +16,6 @@ public class InMemorySyncLockAdapter implements SyncLock {
 	public boolean tryAcquire() {
 
 		return syncReentrantLock.tryLock();
-
-	}
-
-	@Override
-	public boolean tryAcquire(Duration maxWait) {
-
-		try {
-			return syncReentrantLock.tryLock(maxWait.toMillis(), TimeUnit.MILLISECONDS);
-		} catch (InterruptedException interruptedException) {
-			// Se restaura el aviso de interrupción para que quien apaga el servicio lo vea
-			Thread.currentThread().interrupt();
-			return false;
-		}
 
 	}
 

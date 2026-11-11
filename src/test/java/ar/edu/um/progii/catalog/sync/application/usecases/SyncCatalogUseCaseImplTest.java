@@ -28,7 +28,6 @@ import ar.edu.um.progii.catalog.sync.domain.ports.out.CatalogChangeSource;
 import ar.edu.um.progii.catalog.sync.domain.ports.out.CatalogReplicaWriter;
 import ar.edu.um.progii.catalog.sync.domain.ports.out.SyncLock;
 import ar.edu.um.progii.catalog.sync.domain.ports.out.SyncStateRepository;
-import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.EnumMap;
@@ -51,12 +50,6 @@ class SyncCatalogUseCaseImplTest {
 		public boolean tryAcquire() {
 
 			return !takenByAnotherSync;
-
-		}
-
-		public boolean tryAcquire(Duration maxWait) {
-
-			return tryAcquire();
 
 		}
 
@@ -200,7 +193,7 @@ class SyncCatalogUseCaseImplTest {
 
 		}
 
-		public SyncRun rebuildCatalogFromSnapshot(SyncTrigger trigger) {
+		public void rebuildCatalogFromSnapshot(SyncTrigger trigger) {
 
 			rebuilds++;
 			if (failureToThrow != null) {
@@ -208,7 +201,6 @@ class SyncCatalogUseCaseImplTest {
 			}
 			syncStateRepository.currentState = syncStateRepository.currentState.afterSnapshotApplied(snapshotVersion,
 					NOW);
-			return null;
 
 		}
 	}
