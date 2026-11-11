@@ -15,6 +15,7 @@ import ar.edu.um.progii.catalog.sync.infrastructure.redis.dto.ProfessionalRedisD
 import ar.edu.um.progii.catalog.sync.infrastructure.redis.dto.VersionChangesRedisDto;
 import ar.edu.um.progii.catalog.sync.infrastructure.redis.dto.WeeklyScheduleRedisDto;
 import ar.edu.um.progii.catalog.sync.infrastructure.redis.mapper.CatalogRedisMapper;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.EnumMap;
 import java.util.HashMap;
@@ -22,8 +23,10 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.function.Supplier;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.dao.DataAccessException;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Component;
@@ -32,7 +35,8 @@ import tools.jackson.databind.json.JsonMapper;
 
 // Lee del Redis de la cátedra (anexo §14) con comandos de solo lectura: HGETALL de catedra:sync:metadata, MGET de
 // catedra:sync:changes:{version} y HMGET de los Hashes de entidades, donde el campo es el id y el valor un JSON.
-// Un JSON que no se puede leer cuenta como ausente: SyncDecider lo trata como cadena rota o id faltante
+// Un JSON que no se puede leer cuenta como ausente: SyncDecider lo trata como cadena rota o id faltante. Si Redis no
+// responde, cada lectura se reintenta con una espera por reintento
 @Slf4j
 @Component
 @RequiredArgsConstructor
@@ -44,9 +48,62 @@ public class RedisCatalogChangeSourceAdapter implements CatalogChangeSource {
 	private final StringRedisTemplate redisTemplate;
 	private final JsonMapper jsonMapper;
 	private final CatalogRedisMapper catalogRedisMapper;
+	// Cuánto esperar antes de cada reintento: con 1, 2 y 4 s son cuatro lecturas como máximo
+	@Value("${catedra.redis.retry-delays}")
+	private final List<Duration> retryDelays;
 
 	@Override
 	public PublishedVersions readVersions() {
+
+		return readWithRetries(() -> readVersionsOnce());
+
+	}
+
+	@Override
+	public Map<Long, VersionChanges> readChanges(long fromVersion, long toVersion) {
+
+		return readWithRetries(() -> readChangesOnce(fromVersion, toVersion));
+
+	}
+
+	@Override
+	public CurrentCatalogEntities readCurrentCatalog(IdsByEntityType idsToRead) {
+
+		return readWithRetries(() -> readCurrentCatalogOnce(idsToRead));
+
+	}
+
+	// Solo se reintenta Redis no disponible: un JSON ilegible ya se resolvió adentro como ausente
+	private <T> T readWithRetries(Supplier<T> readOnce) {
+
+		for (Duration retryDelay : retryDelays) {
+			try {
+				return readOnce.get();
+			} catch (CatalogSourceUnavailableException unavailableException) {
+				log.warn("{}; retrying in {}", unavailableException.getMessage(), retryDelay);
+				waitBeforeRetrying(retryDelay, unavailableException);
+			}
+		}
+		// Último intento: si vuelve a fallar, la excepción sale tal cual
+		return readOnce.get();
+
+	}
+
+	private static void waitBeforeRetrying(Duration retryDelay,
+			CatalogSourceUnavailableException unavailableException) {
+
+		try {
+			Thread.sleep(retryDelay);
+		} catch (InterruptedException interruptedException) {
+			// Se restaura el aviso de interrupción para que quien apaga el servicio lo vea
+			Thread.currentThread().interrupt();
+			throw new CatalogSourceUnavailableException("Interrupted while waiting to retry Redis",
+					unavailableException);
+		}
+
+	}
+
+	private PublishedVersions readVersionsOnce() {
 
 		Map<String, String> metadataFields;
 		try {
@@ -67,8 +124,7 @@ public class RedisCatalogChangeSourceAdapter implements CatalogChangeSource {
 
 	}
 
-	@Override
-	public Map<Long, VersionChanges> readChanges(long fromVersion, long toVersion) {
+	private Map<Long, VersionChanges> readChangesOnce(long fromVersion, long toVersion) {
 
 		List<String> changesKeys = new ArrayList<>();
 		for (long version = fromVersion; version <= toVersion; version++) {
@@ -104,8 +160,7 @@ public class RedisCatalogChangeSourceAdapter implements CatalogChangeSource {
 
 	}
 
-	@Override
-	public CurrentCatalogEntities readCurrentCatalog(IdsByEntityType idsToRead) {
+	private CurrentCatalogEntities readCurrentCatalogOnce(IdsByEntityType idsToRead) {
 
 		List<ProfessionalCategory> professionalCategories = new ArrayList<>();
 		List<Professional> professionals = new ArrayList<>();
