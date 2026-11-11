@@ -68,9 +68,11 @@ Cada regla va con su motivo. Romper una es un error, aunque compile.
 **Infraestructura**
 
 16. Inyección **siempre** por constructor: campos `private final` y `@RequiredArgsConstructor`. **NUNCA** `@Autowired` sobre un campo en `src/main`.
+    - Una propiedad de configuración se inyecta igual: `@Value("${xxx.yyy}")` sobre el campo `private final`. El `lombok.config` de la raíz hace que Lombok copie ese `@Value` al parámetro del constructor que genera, así que tampoco hace falta escribir el constructor a mano.
 17. Los mappers se escriben a mano, con una guarda de `null` al principio, y construyen el modelo por la vía que este expone (regla 13): `builder()`, una fábrica o el constructor. **NUNCA** MapStruct ni ModelMapper.
 18. Los métodos del adaptador de persistencia llevan `@Transactional` (`readOnly = true` en las lecturas). `update` carga la entidad existente y le cambia solo los campos que corresponden.
     - 18b. Para escrituras masivas con id externo, el adaptador usa SQL con `JdbcTemplate` (`INSERT ... ON CONFLICT (id) DO UPDATE`) en lugar de `save()` de JPA (decisión 18). Se llama `JdbcXxxWriterAdapter`, va en `infrastructure/persistence/adapter/` e implementa un puerto `out` del módulo (`XxxWriter`). El resto de las reglas no cambia.
+        - Si los datos y el estado del módulo tienen que quedar juntos o no quedar (por ejemplo, la réplica y la versión aplicada), el mismo método del writer escribe las dos cosas en una sola transacción (decisión 22). Tres puertos con su propio `@Transactional` commitearían cada uno por su lado. Las entidades JPA de esas tablas quedan solo para leer.
 19. Si el id lo asigna un sistema externo (por ejemplo, la cátedra), la entidad lleva `@Id` **sin** `@GeneratedValue`. Si lo genera la base, `@GeneratedValue(strategy = GenerationType.IDENTITY)`.
 20. Las validaciones de Bean Validation (`@NotBlank`, `@NotNull`…) van **solo** en los DTO de request. El dominio valida igual con sus propias reglas.
 21. Credenciales, tokens y URLs **solo** en `application.properties` como `${VARIABLE}`. **NUNCA** hardcodeados.
@@ -182,6 +184,8 @@ shared.*         ──NUNCA──▶       ningún otro módulo
     │   ├── dto/            XxxRedisDto.java
     │   ├── mapper/         XxxRedisMapper.java
     │   └── adapter/        RedisXxxSourceAdapter.java
+    ├── lock/               adaptador de salida en memoria, sin sistema externo
+    │   └── adapter/        InMemoryXxxLockAdapter.java
     ├── kafka/              adaptador de entrada desde Kafka
     │   ├── dto/            XxxEvent.java
     │   └── listener/       XxxEventListener.java
@@ -213,6 +217,7 @@ Solo existen las carpetas de las tecnologías que el módulo usa. Para una tecno
 | Adaptador de escritura masiva | `infrastructure/persistence/adapter` | `JdbcXxxWriterAdapter implements XxxWriter` | `@Component`, `@RequiredArgsConstructor`, `@Transactional` por método | puerto `out`, `JdbcTemplate` |
 | Adaptador REST externo | `infrastructure/rest/adapter` | `RestXxxSourceAdapter implements XxxSource` | `@Component`, `@RequiredArgsConstructor` | puerto `out`, `RestClient`, DTO y mapper REST |
 | Adaptador Redis | `infrastructure/redis/adapter` | `RedisXxxSourceAdapter implements XxxSource` | `@Component`, `@RequiredArgsConstructor` | puerto `out`, cliente de Redis, mapper |
+| Adaptador en memoria | `infrastructure/lock/adapter` | `InMemoryXxxLockAdapter implements XxxLock` | `@Component` | puerto `out`, `java.util.concurrent` |
 | Listener de Kafka | `infrastructure/kafka/listener` | `XxxEventListener` | `@Component`, `@RequiredArgsConstructor`, `@KafkaListener` en el método | puertos `in`, DTO del evento |
 | Tarea programada | `infrastructure/scheduler` | `XxxScheduler` | `@Component`, `@RequiredArgsConstructor`, `@Scheduled` en el método | puertos `in` |
 | Migración | `src/main/resources/db/migration` | `V<n>__<descripcion>.sql` | — | — |

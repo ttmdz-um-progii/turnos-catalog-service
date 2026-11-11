@@ -8,7 +8,11 @@ import ar.edu.um.progii.catalog.sync.domain.ports.out.CatalogSnapshotSource;
 import ar.edu.um.progii.catalog.sync.infrastructure.rest.dto.CatalogSnapshotApiResponse;
 import ar.edu.um.progii.catalog.sync.infrastructure.rest.dto.ProblemApiResponse;
 import ar.edu.um.progii.catalog.sync.infrastructure.rest.mapper.CatalogRestMapper;
+import java.time.Duration;
+import java.util.List;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.ResourceAccessException;
@@ -19,7 +23,9 @@ import org.springframework.web.client.RestClientResponseException;
 // Pide GET /api/synchronization/snapshot a la API de la cátedra (anexo §7) con el JWT técnico. Los errores se deciden
 // por status y code, nunca por el texto (anexo §13): 401 y 403 son credenciales rechazadas; cualquier otro error, un
 // timeout o una conexión caída, cátedra no disponible; y un cuerpo ilegible, incompleto o inconsistente, snapshot
-// inválido
+// inválido. Solo la cátedra no disponible se reintenta, con una espera por reintento: las credenciales rechazadas y el
+// snapshot inválido no se arreglan pidiendo de nuevo
+@Slf4j
 @Component
 @RequiredArgsConstructor
 public class RestCatalogSnapshotSourceAdapter implements CatalogSnapshotSource {
@@ -28,9 +34,41 @@ public class RestCatalogSnapshotSourceAdapter implements CatalogSnapshotSource {
 
 	private final RestClient catalogRestClient;
 	private final CatalogRestMapper catalogRestMapper;
+	// Cuánto esperar antes de cada reintento: con 1, 2 y 4 s son cuatro pedidos como máximo
+	@Value("${catedra.api.retry-delays}")
+	private final List<Duration> retryDelays;
 
 	@Override
 	public CatalogSnapshot readSnapshot() {
+
+		for (Duration retryDelay : retryDelays) {
+			try {
+				return requestSnapshot();
+			} catch (CatalogSourceUnavailableException unavailableException) {
+				log.warn("{}; retrying in {}", unavailableException.getMessage(), retryDelay);
+				waitBeforeRetrying(retryDelay, unavailableException);
+			}
+		}
+		// Último intento: si vuelve a fallar, la excepción sale tal cual
+		return requestSnapshot();
+
+	}
+
+	private static void waitBeforeRetrying(Duration retryDelay,
+			CatalogSourceUnavailableException unavailableException) {
+
+		try {
+			Thread.sleep(retryDelay);
+		} catch (InterruptedException interruptedException) {
+			// Se restaura el aviso de interrupción para que quien apaga el servicio lo vea
+			Thread.currentThread().interrupt();
+			throw new CatalogSourceUnavailableException("Interrupted while waiting to retry " + SNAPSHOT_PATH,
+					unavailableException);
+		}
+
+	}
+
+	private CatalogSnapshot requestSnapshot() {
 
 		CatalogSnapshotApiResponse catalogSnapshotResponse;
 		try {
