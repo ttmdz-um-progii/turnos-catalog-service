@@ -3,22 +3,27 @@ package ar.edu.um.progii.catalog.sync.infrastructure.persistence.adapter;
 import ar.edu.um.progii.catalog.category.domain.model.ProfessionalCategory;
 import ar.edu.um.progii.catalog.professional.domain.model.Professional;
 import ar.edu.um.progii.catalog.professional.domain.model.WeeklySchedule;
+import ar.edu.um.progii.catalog.sync.application.exception.InconsistentChangesException;
 import ar.edu.um.progii.catalog.sync.application.exception.ReplicaWriteFailedException;
 import ar.edu.um.progii.catalog.sync.domain.model.CatalogSnapshot;
+import ar.edu.um.progii.catalog.sync.domain.model.CurrentCatalogEntities;
 import ar.edu.um.progii.catalog.sync.domain.model.SyncRun;
 import ar.edu.um.progii.catalog.sync.domain.model.SyncState;
 import ar.edu.um.progii.catalog.sync.domain.ports.out.CatalogReplicaWriter;
 import java.sql.Timestamp;
 import java.time.Instant;
+import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.springframework.dao.DataAccessException;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
-// Escribe la réplica, sync_state y sync_run con SQL (regla 18b, decisión 18). Cada método es una sola transacción
-// (decisión 22): si una sentencia falla, el rollback deshace las anteriores y la copia queda como estaba. Mientras
-// dura, las búsquedas siguen viendo el catálogo anterior completo, porque nada se ve hasta el commit
+// Escribe la réplica, sync_state y sync_run con SQL (regla 18b, decisión 18): DELETE para el snapshot e INSERT ... ON
+// CONFLICT para agregar o actualizar. Cada método es una sola transacción (decisión 22): si una sentencia falla, el
+// rollback deshace las anteriores y la copia queda como estaba. Mientras dura, las búsquedas siguen viendo el catálogo
+// anterior completo, porque nada se ve hasta el commit
 @Component
 @RequiredArgsConstructor
 public class JdbcCatalogReplicaWriterAdapter implements CatalogReplicaWriter {
@@ -39,26 +44,8 @@ public class JdbcCatalogReplicaWriterAdapter implements CatalogReplicaWriter {
 			jdbcTemplate.update("DELETE FROM professional_category");
 
 			// Padres antes que hijos
-			for (ProfessionalCategory professionalCategory : catalogSnapshot.getProfessionalCategories()) {
-				jdbcTemplate.update(
-						"INSERT INTO professional_category (id, name, description, enabled) VALUES (?, ?, ?, ?)",
-						professionalCategory.getId(), professionalCategory.getName(),
-						professionalCategory.getDescription(), professionalCategory.isEnabled());
-			}
-			for (Professional professional : catalogSnapshot.getProfessionals()) {
-				jdbcTemplate.update("INSERT INTO professional (id, category_id, first_name, last_name, search_name, "
-						+ "enabled) VALUES (?, ?, ?, ?, ?, ?)", professional.getId(), professional.getCategoryId(),
-						professional.getFirstName(), professional.getLastName(), professional.getSearchName(),
-						professional.isEnabled());
-			}
-			for (WeeklySchedule weeklySchedule : catalogSnapshot.getWeeklySchedules()) {
-				jdbcTemplate.update("INSERT INTO weekly_schedule (id, professional_id, day_of_week, start_time, "
-						+ "end_time, slot_duration_minutes, enabled) VALUES (?, ?, ?, ?, ?, ?, ?)",
-						weeklySchedule.getId(), weeklySchedule.getProfessionalId(),
-						weeklySchedule.getDayOfWeek().name(), weeklySchedule.getStartTime(),
-						weeklySchedule.getEndTime(), weeklySchedule.getSlotDurationMinutes(),
-						weeklySchedule.isEnabled());
-			}
+			upsertEntities(catalogSnapshot.getProfessionalCategories(), catalogSnapshot.getProfessionals(),
+					catalogSnapshot.getWeeklySchedules());
 
 			updateSyncState(stateAfterSnapshot);
 			insertSyncRun(successfulRun);
@@ -66,6 +53,28 @@ public class JdbcCatalogReplicaWriterAdapter implements CatalogReplicaWriter {
 			throw new ReplicaWriteFailedException(
 					"Could not replace the catalog with snapshot " + catalogSnapshot.getSnapshotVersion(),
 					databaseException);
+		}
+
+	}
+
+	@Override
+	@Transactional
+	public void applyChanges(CurrentCatalogEntities currentCatalogEntities, SyncState stateAfterChanges,
+			SyncRun successfulRun) {
+
+		try {
+			upsertEntities(currentCatalogEntities.getProfessionalCategories(),
+					currentCatalogEntities.getProfessionals(), currentCatalogEntities.getWeeklySchedules());
+			updateSyncState(stateAfterChanges);
+			insertSyncRun(successfulRun);
+		} catch (DataIntegrityViolationException brokenReferenceException) {
+			// Por ejemplo, un profesional que apunta a una categoría que la copia no tiene
+			throw new InconsistentChangesException(
+					"Applying the changes up to version " + successfulRun.getToVersion() + " breaks a reference",
+					brokenReferenceException);
+		} catch (DataAccessException databaseException) {
+			throw new ReplicaWriteFailedException(
+					"Could not apply the changes up to version " + successfulRun.getToVersion(), databaseException);
 		}
 
 	}
@@ -80,6 +89,42 @@ public class JdbcCatalogReplicaWriterAdapter implements CatalogReplicaWriter {
 		} catch (DataAccessException databaseException) {
 			throw new ReplicaWriteFailedException("Could not record the " + recordedRun.getRunResult()
 					+ " synchronization", databaseException);
+		}
+
+	}
+
+	// Inserta cada entidad o, si su id ya existe, la reemplaza: aplicar dos veces lo mismo no cambia nada. Va en orden
+	// de padres a hijos, para que cada referencia apunte a algo que ya está
+	private void upsertEntities(List<ProfessionalCategory> professionalCategories, List<Professional> professionals,
+			List<WeeklySchedule> weeklySchedules) {
+
+		for (ProfessionalCategory professionalCategory : professionalCategories) {
+			jdbcTemplate.update(
+					"INSERT INTO professional_category (id, name, description, enabled) VALUES (?, ?, ?, ?) "
+							+ "ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, description = EXCLUDED.description, "
+							+ "enabled = EXCLUDED.enabled",
+					professionalCategory.getId(), professionalCategory.getName(),
+					professionalCategory.getDescription(), professionalCategory.isEnabled());
+		}
+		for (Professional professional : professionals) {
+			jdbcTemplate.update(
+					"INSERT INTO professional (id, category_id, first_name, last_name, search_name, enabled) "
+							+ "VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT (id) DO UPDATE SET category_id = EXCLUDED.category_id, "
+							+ "first_name = EXCLUDED.first_name, last_name = EXCLUDED.last_name, "
+							+ "search_name = EXCLUDED.search_name, enabled = EXCLUDED.enabled",
+					professional.getId(),
+					professional.getCategoryId(), professional.getFirstName(), professional.getLastName(),
+					professional.getSearchName(), professional.isEnabled());
+		}
+		for (WeeklySchedule weeklySchedule : weeklySchedules) {
+			jdbcTemplate.update("INSERT INTO weekly_schedule (id, professional_id, day_of_week, start_time, end_time, "
+					+ "slot_duration_minutes, enabled) VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT (id) DO UPDATE SET "
+					+ "professional_id = EXCLUDED.professional_id, day_of_week = EXCLUDED.day_of_week, "
+					+ "start_time = EXCLUDED.start_time, end_time = EXCLUDED.end_time, "
+					+ "slot_duration_minutes = EXCLUDED.slot_duration_minutes, enabled = EXCLUDED.enabled",
+					weeklySchedule.getId(), weeklySchedule.getProfessionalId(), weeklySchedule.getDayOfWeek().name(),
+					weeklySchedule.getStartTime(), weeklySchedule.getEndTime(),
+					weeklySchedule.getSlotDurationMinutes(), weeklySchedule.isEnabled());
 		}
 
 	}

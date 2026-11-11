@@ -119,4 +119,36 @@ class SyncStateTest {
 				.isInstanceOf(IllegalArgumentException.class);
 
 	}
+
+	@Test
+	void reachesTheCurrentVersionWithTheChanges() {
+
+		SyncState stateAfterChanges = FAILING_STATE_WITH_DATA.afterChangesApplied(9L, NOW);
+
+		assertThat(stateAfterChanges.getAppliedVersion()).isEqualTo(9L);
+		assertThat(stateAfterChanges.getRemoteVersion()).isEqualTo(9L);
+		assertThat(stateAfterChanges.getStatus()).isEqualTo(SyncStatus.IN_SYNC);
+		assertThat(stateAfterChanges.getLastSuccessAt()).isEqualTo(NOW);
+		assertThat(stateAfterChanges.getLastAttemptAt()).isEqualTo(NOW);
+		// No se reemplazó la copia entera
+		assertThat(stateAfterChanges.getLastFullSyncAt()).isEqualTo(PREVIOUS_ATTEMPT_AT);
+		assertThat(stateAfterChanges.getConsecutiveFailures()).isZero();
+		assertThat(stateAfterChanges.getLastErrorCode()).isNull();
+
+	}
+
+	@Test
+	void keepsTheVersionWhenThereIsNothingToApply() {
+
+		SyncState stateAfterNoop = FAILING_STATE_WITH_DATA.afterNoop(5L, NOW);
+
+		assertThat(stateAfterNoop.getAppliedVersion()).isEqualTo(5L);
+		assertThat(stateAfterNoop.getRemoteVersion()).isEqualTo(5L);
+		assertThat(stateAfterNoop.getStatus()).isEqualTo(SyncStatus.IN_SYNC);
+		assertThat(stateAfterNoop.getLastSuccessAt()).isEqualTo(NOW);
+		assertThat(stateAfterNoop.getLastFullSyncAt()).isEqualTo(PREVIOUS_ATTEMPT_AT);
+		assertThat(stateAfterNoop.getConsecutiveFailures()).isZero();
+		assertThat(stateAfterNoop.getLastErrorMessage()).isNull();
+
+	}
 }

@@ -12,6 +12,7 @@ import ar.edu.um.progii.catalog.sync.application.exception.InvalidCatalogSnapsho
 import ar.edu.um.progii.catalog.sync.application.exception.ReplicaWriteFailedException;
 import ar.edu.um.progii.catalog.sync.application.exception.SyncAlreadyRunningException;
 import ar.edu.um.progii.catalog.sync.domain.model.CatalogSnapshot;
+import ar.edu.um.progii.catalog.sync.domain.model.CurrentCatalogEntities;
 import ar.edu.um.progii.catalog.sync.domain.model.SyncMode;
 import ar.edu.um.progii.catalog.sync.domain.model.SyncRun;
 import ar.edu.um.progii.catalog.sync.domain.model.SyncRunResult;
@@ -109,6 +110,14 @@ class RebuildCatalogFromSnapshotUseCaseImplTest {
 			this.replacedSnapshot = catalogSnapshot;
 			this.stateAfterSnapshot = stateAfterSnapshot;
 			this.successfulRun = successfulRun;
+
+		}
+
+		// La reconstrucción nunca aplica cambios sueltos
+		public void applyChanges(CurrentCatalogEntities currentCatalogEntities, SyncState stateAfterChanges,
+				SyncRun successfulRun) {
+
+			throw new UnsupportedOperationException("The rebuild never applies changes");
 
 		}
 
