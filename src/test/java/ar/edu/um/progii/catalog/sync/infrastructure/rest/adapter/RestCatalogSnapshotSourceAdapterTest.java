@@ -3,11 +3,13 @@ package ar.edu.um.progii.catalog.sync.infrastructure.rest.adapter;
 import static com.github.tomakehurst.wiremock.client.WireMock.aResponse;
 import static com.github.tomakehurst.wiremock.client.WireMock.equalTo;
 import static com.github.tomakehurst.wiremock.client.WireMock.get;
+import static com.github.tomakehurst.wiremock.client.WireMock.exactly;
 import static com.github.tomakehurst.wiremock.client.WireMock.getRequestedFor;
 import static com.github.tomakehurst.wiremock.client.WireMock.urlEqualTo;
 import static com.github.tomakehurst.wiremock.core.WireMockConfiguration.wireMockConfig;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static com.github.tomakehurst.wiremock.stubbing.Scenario.STARTED;
 
 import ar.edu.um.progii.catalog.category.domain.model.ProfessionalCategory;
 import ar.edu.um.progii.catalog.professional.domain.model.Professional;
@@ -22,16 +24,20 @@ import com.github.tomakehurst.wiremock.WireMockServer;
 import java.time.DayOfWeek;
 import java.time.Duration;
 import java.time.LocalTime;
+import java.util.List;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 // Corre contra un WireMock que hace de API de la cátedra, sin Spring ni red. El cliente se arma con la misma
-// configuración que la aplicación, pero con un read timeout corto para probar el vencimiento rápido
+// configuración que la aplicación, pero con un read timeout y esperas entre reintentos cortos para que el test sea rápido
 class RestCatalogSnapshotSourceAdapterTest {
 
 	private static final String SNAPSHOT_PATH = "/api/synchronization/snapshot";
+	// Tres reintentos, como en la aplicación: cuatro pedidos como máximo
+	private static final List<Duration> SHORT_RETRY_DELAYS = List.of(Duration.ofMillis(10), Duration.ofMillis(10),
+			Duration.ofMillis(10));
 
 	// El ejemplo del anexo (§7), con un segundo horario en HH:mm y un campo que el contrato no define
 	private static final String ANNEX_SNAPSHOT_JSON = """
@@ -68,7 +74,7 @@ class RestCatalogSnapshotSourceAdapterTest {
 		restCatalogSnapshotSourceAdapter = new RestCatalogSnapshotSourceAdapter(
 				new CatalogRestConfig().catalogRestClient(catedraApiServer.baseUrl(), "test-token",
 						Duration.ofSeconds(1), Duration.ofMillis(500)),
-				new CatalogRestMapper());
+				new CatalogRestMapper(), SHORT_RETRY_DELAYS);
 
 	}
 
@@ -131,6 +137,8 @@ class RestCatalogSnapshotSourceAdapterTest {
 		assertThatThrownBy(() -> restCatalogSnapshotSourceAdapter.readSnapshot())
 				.isInstanceOf(CatalogCredentialsRejectedException.class)
 				.hasMessageContaining("401");
+		// Reintentar no arregla unas credenciales rechazadas
+		catedraApiServer.verify(exactly(1), getRequestedFor(urlEqualTo(SNAPSHOT_PATH)));
 
 	}
 
@@ -145,6 +153,29 @@ class RestCatalogSnapshotSourceAdapterTest {
 				.isInstanceOf(CatalogSourceUnavailableException.class)
 				.hasMessageContaining("503")
 				.hasMessageContaining("SERVICE_UNAVAILABLE");
+		// El primer pedido y los tres reintentos
+		catedraApiServer.verify(exactly(4), getRequestedFor(urlEqualTo(SNAPSHOT_PATH)));
+
+	}
+
+	@Test
+	void retriesUntilTheSourceAnswers() {
+
+		// La primera vez responde 503 y desde la segunda, el snapshot
+		catedraApiServer.stubFor(get(SNAPSHOT_PATH).inScenario("Catedra recovers")
+				.whenScenarioStateIs(STARTED)
+				.willReturn(aResponse().withStatus(503))
+				.willSetStateTo("Recovered"));
+		catedraApiServer.stubFor(get(SNAPSHOT_PATH).inScenario("Catedra recovers")
+				.whenScenarioStateIs("Recovered")
+				.willReturn(aResponse().withStatus(200)
+						.withHeader("Content-Type", "application/json")
+						.withBody(ANNEX_SNAPSHOT_JSON)));
+
+		CatalogSnapshot catalogSnapshot = restCatalogSnapshotSourceAdapter.readSnapshot();
+
+		assertThat(catalogSnapshot.getSnapshotVersion()).isEqualTo(7L);
+		catedraApiServer.verify(exactly(2), getRequestedFor(urlEqualTo(SNAPSHOT_PATH)));
 
 	}
 
@@ -198,6 +229,8 @@ class RestCatalogSnapshotSourceAdapterTest {
 
 		assertThatThrownBy(() -> restCatalogSnapshotSourceAdapter.readSnapshot())
 				.isInstanceOf(InvalidCatalogSnapshotException.class);
+		// Pedir de nuevo devolvería lo mismo
+		catedraApiServer.verify(exactly(1), getRequestedFor(urlEqualTo(SNAPSHOT_PATH)));
 
 	}
 }
