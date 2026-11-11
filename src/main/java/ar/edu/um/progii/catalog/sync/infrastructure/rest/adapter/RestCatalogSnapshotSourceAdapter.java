@@ -18,7 +18,8 @@ import org.springframework.web.client.RestClientResponseException;
 
 // Pide GET /api/synchronization/snapshot a la API de la cátedra (anexo §7) con el JWT técnico. Los errores se deciden
 // por status y code, nunca por el texto (anexo §13): 401 y 403 son credenciales rechazadas; cualquier otro error, un
-// timeout o una conexión caída, cátedra no disponible; y un cuerpo ilegible o incompleto, snapshot inválido
+// timeout o una conexión caída, cátedra no disponible; y un cuerpo ilegible, incompleto o inconsistente, snapshot
+// inválido
 @Component
 @RequiredArgsConstructor
 public class RestCatalogSnapshotSourceAdapter implements CatalogSnapshotSource {

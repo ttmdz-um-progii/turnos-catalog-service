@@ -12,8 +12,9 @@ import java.util.ArrayList;
 import java.util.List;
 import org.springframework.stereotype.Component;
 
-// Convierte el snapshot leído de la API de la cátedra en el modelo de dominio. Una colección que falta o una entidad
-// que no cumple su modelo lanza IllegalArgumentException, y el adaptador lo trata como snapshot inválido
+// Convierte el snapshot leído de la API de la cátedra en el modelo de dominio. Una colección que falta, una entidad
+// que no cumple su modelo o datos inconsistentes lanzan IllegalArgumentException, y el adaptador lo trata como
+// snapshot inválido
 @Component
 public class CatalogRestMapper {
 
