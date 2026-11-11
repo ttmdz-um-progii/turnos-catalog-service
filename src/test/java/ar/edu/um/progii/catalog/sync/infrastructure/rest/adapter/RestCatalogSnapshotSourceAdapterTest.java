@@ -175,6 +175,21 @@ class RestCatalogSnapshotSourceAdapterTest {
 	}
 
 	@Test
+	void rejectsASnapshotWithABrokenReference() {
+
+		catedraApiServer.stubFor(get(SNAPSHOT_PATH).willReturn(aResponse().withStatus(200)
+				.withHeader("Content-Type", "application/json")
+				.withBody("{\"snapshotVersion\":7,\"professionalCategories\":[],\"weeklySchedules\":[],"
+						+ "\"professionals\":[{\"id\":15,\"categoryId\":3,\"firstName\":\"Ana\",\"lastName\":\"Gomez\","
+						+ "\"enabled\":true}]}")));
+
+		assertThatThrownBy(() -> restCatalogSnapshotSourceAdapter.readSnapshot())
+				.isInstanceOf(InvalidCatalogSnapshotException.class)
+				.hasMessageContaining("Professional 15 references the missing category 3");
+
+	}
+
+	@Test
 	void rejectsAnUnreadableSnapshot() {
 
 		catedraApiServer.stubFor(get(SNAPSHOT_PATH).willReturn(aResponse().withStatus(200)
