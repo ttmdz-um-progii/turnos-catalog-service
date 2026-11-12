@@ -18,6 +18,7 @@ import ar.edu.um.progii.catalog.sync.domain.model.SyncRun;
 import ar.edu.um.progii.catalog.sync.domain.model.SyncRunResult;
 import ar.edu.um.progii.catalog.sync.domain.model.SyncState;
 import ar.edu.um.progii.catalog.sync.domain.model.SyncStatus;
+import ar.edu.um.progii.catalog.sync.domain.model.SyncOrigin;
 import ar.edu.um.progii.catalog.sync.domain.model.SyncTrigger;
 import ar.edu.um.progii.catalog.sync.domain.ports.out.CatalogReplicaWriter;
 import ar.edu.um.progii.catalog.sync.domain.ports.out.CatalogSnapshotSource;
@@ -145,13 +146,14 @@ class RebuildCatalogFromSnapshotUseCaseImplTest {
 		syncStateRepository.currentState = NEVER_SYNCED_STATE;
 		catalogSnapshotSource.catalogSnapshotToReturn = SNAPSHOT_VERSION_7;
 
-		rebuildCatalogFromSnapshotUseCase.rebuildCatalogFromSnapshot(SyncTrigger.STARTUP);
+		rebuildCatalogFromSnapshotUseCase.rebuildCatalogFromSnapshot(SyncOrigin.notification("catalog-event-7"));
 
 		assertThat(catalogReplicaWriter.replacedSnapshot).isSameAs(SNAPSHOT_VERSION_7);
 		assertThat(catalogReplicaWriter.stateAfterSnapshot.getAppliedVersion()).isEqualTo(7L);
 		assertThat(catalogReplicaWriter.stateAfterSnapshot.getStatus()).isEqualTo(SyncStatus.IN_SYNC);
 		SyncRun successfulRun = catalogReplicaWriter.successfulRun;
-		assertThat(successfulRun.getTriggerSource()).isEqualTo(SyncTrigger.STARTUP);
+		assertThat(successfulRun.getTriggerSource()).isEqualTo(SyncTrigger.NOTIFICATION);
+		assertThat(successfulRun.getEventId()).isEqualTo("catalog-event-7");
 		assertThat(successfulRun.getMode()).isEqualTo(SyncMode.FULL);
 		assertThat(successfulRun.getRunResult()).isEqualTo(SyncRunResult.SUCCESS);
 		assertThat(successfulRun.getFromVersion()).isNull();
@@ -170,7 +172,7 @@ class RebuildCatalogFromSnapshotUseCaseImplTest {
 				"/api/synchronization/snapshot answered 401 with code null");
 		catalogSnapshotSource.failureToThrow = credentialsException;
 
-		assertThatThrownBy(() -> rebuildCatalogFromSnapshotUseCase.rebuildCatalogFromSnapshot(SyncTrigger.MANUAL))
+		assertThatThrownBy(() -> rebuildCatalogFromSnapshotUseCase.rebuildCatalogFromSnapshot(SyncOrigin.manual()))
 				.isSameAs(credentialsException);
 
 		assertThat(catalogReplicaWriter.replacedSnapshot).isNull();
@@ -191,7 +193,7 @@ class RebuildCatalogFromSnapshotUseCaseImplTest {
 		syncStateRepository.currentState = NEVER_SYNCED_STATE;
 		catalogSnapshotSource.failureToThrow = new CatalogSourceUnavailableException("Could not reach the catalog");
 
-		assertThatThrownBy(() -> rebuildCatalogFromSnapshotUseCase.rebuildCatalogFromSnapshot(SyncTrigger.STARTUP))
+		assertThatThrownBy(() -> rebuildCatalogFromSnapshotUseCase.rebuildCatalogFromSnapshot(SyncOrigin.startup()))
 				.isInstanceOf(CatalogSourceUnavailableException.class);
 
 		assertThat(catalogReplicaWriter.stateAfterFailure.getStatus()).isEqualTo(SyncStatus.EMPTY);
@@ -208,7 +210,7 @@ class RebuildCatalogFromSnapshotUseCaseImplTest {
 		catalogSnapshotSource.failureToThrow = new InvalidCatalogSnapshotException(
 				"Invalid snapshot: Professional 15 references the missing category 3");
 
-		assertThatThrownBy(() -> rebuildCatalogFromSnapshotUseCase.rebuildCatalogFromSnapshot(SyncTrigger.MANUAL))
+		assertThatThrownBy(() -> rebuildCatalogFromSnapshotUseCase.rebuildCatalogFromSnapshot(SyncOrigin.manual()))
 				.isInstanceOf(InvalidCatalogSnapshotException.class);
 
 		assertThat(catalogReplicaWriter.stateAfterFailure.getStatus()).isEqualTo(SyncStatus.DEGRADED);
@@ -226,7 +228,7 @@ class RebuildCatalogFromSnapshotUseCaseImplTest {
 		catalogReplicaWriter.replaceFailureToThrow = new ReplicaWriteFailedException("Could not replace the catalog",
 				new RuntimeException("connection lost"));
 
-		assertThatThrownBy(() -> rebuildCatalogFromSnapshotUseCase.rebuildCatalogFromSnapshot(SyncTrigger.MANUAL))
+		assertThatThrownBy(() -> rebuildCatalogFromSnapshotUseCase.rebuildCatalogFromSnapshot(SyncOrigin.manual()))
 				.isInstanceOf(ReplicaWriteFailedException.class);
 
 		assertThat(catalogReplicaWriter.stateAfterFailure.getAppliedVersion()).isEqualTo(5L);
@@ -240,7 +242,7 @@ class RebuildCatalogFromSnapshotUseCaseImplTest {
 
 		syncLock.takenByAnotherSync = true;
 
-		assertThatThrownBy(() -> rebuildCatalogFromSnapshotUseCase.rebuildCatalogFromSnapshot(SyncTrigger.SCHEDULED))
+		assertThatThrownBy(() -> rebuildCatalogFromSnapshotUseCase.rebuildCatalogFromSnapshot(SyncOrigin.scheduled()))
 				.isInstanceOf(SyncAlreadyRunningException.class);
 
 		assertThat(catalogSnapshotSource.reads).isZero();

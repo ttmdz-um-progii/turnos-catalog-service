@@ -12,6 +12,7 @@ import ar.edu.um.progii.catalog.sync.domain.model.SyncRun;
 import ar.edu.um.progii.catalog.sync.domain.model.SyncRunResult;
 import ar.edu.um.progii.catalog.sync.domain.model.SyncState;
 import ar.edu.um.progii.catalog.sync.domain.model.SyncStatus;
+import ar.edu.um.progii.catalog.sync.domain.model.SyncOrigin;
 import ar.edu.um.progii.catalog.sync.domain.model.SyncTrigger;
 import ar.edu.um.progii.catalog.sync.domain.ports.in.SyncCatalogUseCase;
 import ar.edu.um.progii.catalog.sync.domain.ports.out.CatalogReplicaWriter;
@@ -112,7 +113,7 @@ class SyncCatalogUseCaseImplIntegrationTest {
 	@Test
 	void bringsTheCopyFromVersion7To9() {
 
-		syncCatalogUseCase.syncCatalog(SyncTrigger.SCHEDULED);
+		syncCatalogUseCase.syncCatalog(SyncOrigin.scheduled());
 
 		Map<String, Object> syncStateRow = jdbcTemplate.queryForMap("SELECT * FROM sync_state");
 		assertThat(syncStateRow.get("applied_version")).isEqualTo(9L);
