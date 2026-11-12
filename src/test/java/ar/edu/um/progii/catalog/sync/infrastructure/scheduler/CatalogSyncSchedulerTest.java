@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import ar.edu.um.progii.catalog.sync.application.exception.CatalogSourceUnavailableException;
 import ar.edu.um.progii.catalog.sync.application.exception.SyncAlreadyRunningException;
+import ar.edu.um.progii.catalog.sync.domain.model.SyncOrigin;
 import ar.edu.um.progii.catalog.sync.domain.model.SyncTrigger;
 import ar.edu.um.progii.catalog.sync.domain.ports.in.SyncCatalogUseCase;
 import java.util.ArrayList;
@@ -20,9 +21,9 @@ class CatalogSyncSchedulerTest {
 		private RuntimeException exceptionToThrow;
 
 		@Override
-		public void syncCatalog(SyncTrigger trigger) {
+		public void syncCatalog(SyncOrigin syncOrigin) {
 
-			receivedTriggers.add(trigger);
+			receivedTriggers.add(syncOrigin.getTrigger());
 			if (exceptionToThrow != null) {
 				throw exceptionToThrow;
 			}

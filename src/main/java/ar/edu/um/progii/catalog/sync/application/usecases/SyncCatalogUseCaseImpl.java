@@ -14,13 +14,14 @@ import ar.edu.um.progii.catalog.sync.domain.model.SyncMode;
 import ar.edu.um.progii.catalog.sync.domain.model.SyncRun;
 import ar.edu.um.progii.catalog.sync.domain.model.SyncRunResult;
 import ar.edu.um.progii.catalog.sync.domain.model.SyncState;
-import ar.edu.um.progii.catalog.sync.domain.model.SyncTrigger;
+import ar.edu.um.progii.catalog.sync.domain.model.SyncOrigin;
 import ar.edu.um.progii.catalog.sync.domain.model.VersionChanges;
 import ar.edu.um.progii.catalog.sync.domain.ports.in.RebuildCatalogFromSnapshotUseCase;
 import ar.edu.um.progii.catalog.sync.domain.ports.in.SyncCatalogUseCase;
 import ar.edu.um.progii.catalog.sync.domain.ports.out.CatalogChangeSource;
 import ar.edu.um.progii.catalog.sync.domain.ports.out.CatalogReplicaWriter;
 import ar.edu.um.progii.catalog.sync.domain.ports.out.SyncLock;
+import ar.edu.um.progii.catalog.sync.domain.ports.out.SyncRunRepository;
 import ar.edu.um.progii.catalog.sync.domain.ports.out.SyncStateRepository;
 import java.time.Instant;
 import java.util.Map;
@@ -32,7 +33,7 @@ import org.springframework.stereotype.Component;
 // CU-1. Cada pasada lee lo que publicó la cátedra, decide con SyncDecider y aplica los cambios de localVersion + 1 a
 // currentVersion en una sola escritura, o reconstruye desde el snapshot si la cadena no se puede verificar. Después
 // vuelve a mirar: si la cátedra publicó algo más mientras tanto, hace otra pasada (decisión 24). Las lecturas de la
-// cátedra quedan fuera de la escritura
+// cátedra quedan fuera de la escritura. Un aviso que ya se procesó solo se registra como NOOP (decisión 12)
 @Slf4j
 @Component
 @RequiredArgsConstructor
@@ -43,6 +44,7 @@ public class SyncCatalogUseCaseImpl implements SyncCatalogUseCase {
 
 	private final SyncLock syncLock;
 	private final SyncStateRepository syncStateRepository;
+	private final SyncRunRepository syncRunRepository;
 	private final CatalogChangeSource catalogChangeSource;
 	private final CatalogReplicaWriter catalogReplicaWriter;
 	private final RebuildCatalogFromSnapshotUseCase rebuildCatalogFromSnapshotUseCase;
@@ -61,15 +63,19 @@ public class SyncCatalogUseCaseImpl implements SyncCatalogUseCase {
 	}
 
 	@Override
-	public void syncCatalog(SyncTrigger trigger) {
+	public void syncCatalog(SyncOrigin syncOrigin) {
 
 		if (!syncLock.tryAcquire()) {
 			throw new SyncAlreadyRunningException("Another synchronization is writing the catalog");
 		}
 		try {
+			if (isRepeatedNotification(syncOrigin)) {
+				recordRepeatedNotification(syncOrigin);
+				return;
+			}
 			boolean snapshotApplied = false;
 			for (int passNumber = 1; passNumber <= MAX_PASSES; passNumber++) {
-				PassOutcome passOutcome = runPass(trigger, passNumber == 1, snapshotApplied);
+				PassOutcome passOutcome = runPass(syncOrigin, passNumber == 1, snapshotApplied);
 				if (passOutcome == PassOutcome.FINISHED) {
 					return;
 				}
@@ -84,13 +90,13 @@ public class SyncCatalogUseCaseImpl implements SyncCatalogUseCase {
 
 	}
 
-	private PassOutcome runPass(SyncTrigger trigger, boolean firstPass, boolean snapshotApplied) {
+	private PassOutcome runPass(SyncOrigin syncOrigin, boolean firstPass, boolean snapshotApplied) {
 
 		Instant startedAt = Instant.now();
 		SyncState currentState = syncStateRepository.findCurrent();
 		// Sin copia no hay desde dónde avanzar: no hace falta preguntarle nada a la cátedra
 		if (currentState.getAppliedVersion() == null) {
-			return rebuildFromSnapshot(trigger, snapshotApplied);
+			return rebuildFromSnapshot(syncOrigin, snapshotApplied);
 		}
 		long localVersion = currentState.getAppliedVersion();
 
@@ -98,7 +104,7 @@ public class SyncCatalogUseCaseImpl implements SyncCatalogUseCase {
 		try {
 			pendingChanges = readPendingChanges(localVersion);
 		} catch (CatalogSourceUnavailableException unavailableException) {
-			recordFailure(trigger, currentState, startedAt, SyncErrorCode.CATALOG_SOURCE_UNAVAILABLE,
+			recordFailure(syncOrigin, currentState, startedAt, SyncErrorCode.CATALOG_SOURCE_UNAVAILABLE,
 					unavailableException);
 			throw unavailableException;
 		}
@@ -107,12 +113,12 @@ public class SyncCatalogUseCaseImpl implements SyncCatalogUseCase {
 			case NOOP -> {
 				// Una pasada posterior que no encuentra nada solo confirma lo que ya se registró
 				if (firstPass) {
-					recordNoop(trigger, currentState, startedAt, pendingChanges.currentVersion());
+					recordNoop(syncOrigin, currentState, startedAt, pendingChanges.currentVersion());
 				}
 				yield PassOutcome.FINISHED;
 			}
-			case SNAPSHOT -> rebuildFromSnapshot(trigger, snapshotApplied);
-			case INCREMENTAL -> applyChanges(trigger, currentState, startedAt, pendingChanges, snapshotApplied);
+			case SNAPSHOT -> rebuildFromSnapshot(syncOrigin, snapshotApplied);
+			case INCREMENTAL -> applyChanges(syncOrigin, currentState, startedAt, pendingChanges, snapshotApplied);
 		};
 
 	}
@@ -142,13 +148,14 @@ public class SyncCatalogUseCaseImpl implements SyncCatalogUseCase {
 
 	}
 
-	private PassOutcome applyChanges(SyncTrigger trigger, SyncState currentState, Instant startedAt,
+	private PassOutcome applyChanges(SyncOrigin syncOrigin, SyncState currentState, Instant startedAt,
 			PendingChanges pendingChanges, boolean snapshotApplied) {
 
 		CurrentCatalogEntities currentCatalogEntities = pendingChanges.currentCatalogEntities();
 		Instant appliedAt = Instant.now();
 		SyncRun successfulRun = SyncRun.builder()
-				.triggerSource(trigger)
+				.triggerSource(syncOrigin.getTrigger())
+				.eventId(syncOrigin.getEventId())
 				.mode(SyncMode.INCREMENTAL)
 				.fromVersion(currentState.getAppliedVersion())
 				.toVersion(pendingChanges.currentVersion())
@@ -166,9 +173,9 @@ public class SyncCatalogUseCaseImpl implements SyncCatalogUseCase {
 		} catch (InconsistentChangesException inconsistentChangesException) {
 			// No es una falla pasajera: la copia no se puede verificar y se vuelve al snapshot
 			log.warn("{}; rebuilding from the snapshot", inconsistentChangesException.getMessage());
-			return rebuildFromSnapshot(trigger, snapshotApplied);
+			return rebuildFromSnapshot(syncOrigin, snapshotApplied);
 		} catch (ReplicaWriteFailedException writeException) {
-			recordFailure(trigger, currentState, startedAt, SyncErrorCode.REPLICA_WRITE_FAILED, writeException);
+			recordFailure(syncOrigin, currentState, startedAt, SyncErrorCode.REPLICA_WRITE_FAILED, writeException);
 			throw writeException;
 		}
 
@@ -177,22 +184,51 @@ public class SyncCatalogUseCaseImpl implements SyncCatalogUseCase {
 	// La reconstrucción registra su propio resultado, también si falla: su excepción solo se deja pasar. Un segundo
 	// snapshot en la misma ejecución no arreglaría nada, porque la cátedra sigue publicando lo mismo: se corta y la
 	// próxima ejecución vuelve a intentar
-	private PassOutcome rebuildFromSnapshot(SyncTrigger trigger, boolean snapshotApplied) {
+	private PassOutcome rebuildFromSnapshot(SyncOrigin syncOrigin, boolean snapshotApplied) {
 
 		if (snapshotApplied) {
 			log.warn("The catalog still needs a snapshot after applying one; stopping until the next synchronization");
 			return PassOutcome.FINISHED;
 		}
-		rebuildCatalogFromSnapshotUseCase.rebuildCatalogFromSnapshot(trigger);
+		rebuildCatalogFromSnapshotUseCase.rebuildCatalogFromSnapshot(syncOrigin);
 		return PassOutcome.APPLIED_SNAPSHOT;
 
 	}
 
-	private void recordNoop(SyncTrigger trigger, SyncState currentState, Instant startedAt, long currentVersion) {
+	// Se pregunta con el lock tomado: así un aviso que se está procesando ya terminó de registrarse
+	private boolean isRepeatedNotification(SyncOrigin syncOrigin) {
+
+		return syncOrigin.getEventId() != null && syncRunRepository.existsCompletedRunForEvent(syncOrigin.getEventId());
+
+	}
+
+	// La entrega de la cátedra es al menos una vez (anexo §18.1): el aviso repetido no lee la cátedra ni cambia el
+	// estado, solo deja constancia de que llegó
+	private void recordRepeatedNotification(SyncOrigin syncOrigin) {
+
+		Instant checkedAt = Instant.now();
+		SyncState currentState = syncStateRepository.findCurrent();
+		SyncRun repeatedNotificationRun = SyncRun.builder()
+				.triggerSource(syncOrigin.getTrigger())
+				.eventId(syncOrigin.getEventId())
+				.mode(SyncMode.INCREMENTAL)
+				.fromVersion(currentState.getAppliedVersion())
+				.toVersion(currentState.getAppliedVersion())
+				.runResult(SyncRunResult.NOOP)
+				.startedAt(checkedAt)
+				.finishedAt(checkedAt)
+				.build();
+		catalogReplicaWriter.recordRun(currentState, repeatedNotificationRun);
+		log.info("Notification {} was already processed; recorded as a no-op", syncOrigin.getEventId());
+
+	}
+
+	private void recordNoop(SyncOrigin syncOrigin, SyncState currentState, Instant startedAt, long currentVersion) {
 
 		Instant checkedAt = Instant.now();
 		SyncRun noopRun = SyncRun.builder()
-				.triggerSource(trigger)
+				.triggerSource(syncOrigin.getTrigger())
+				.eventId(syncOrigin.getEventId())
 				.mode(SyncMode.INCREMENTAL)
 				.fromVersion(currentState.getAppliedVersion())
 				.toVersion(currentState.getAppliedVersion())
@@ -204,12 +240,14 @@ public class SyncCatalogUseCaseImpl implements SyncCatalogUseCase {
 
 	}
 
-	private void recordFailure(SyncTrigger trigger, SyncState currentState, Instant startedAt, SyncErrorCode errorCode,
+	private void recordFailure(SyncOrigin syncOrigin, SyncState currentState, Instant startedAt,
+			SyncErrorCode errorCode,
 			RuntimeException failureException) {
 
 		Instant failedAt = Instant.now();
 		SyncRun failedRun = SyncRun.builder()
-				.triggerSource(trigger)
+				.triggerSource(syncOrigin.getTrigger())
+				.eventId(syncOrigin.getEventId())
 				.mode(SyncMode.INCREMENTAL)
 				.fromVersion(currentState.getAppliedVersion())
 				.runResult(SyncRunResult.FAILED)

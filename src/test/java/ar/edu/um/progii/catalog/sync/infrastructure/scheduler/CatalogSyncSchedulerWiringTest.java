@@ -3,6 +3,7 @@ package ar.edu.um.progii.catalog.sync.infrastructure.scheduler;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import ar.edu.um.progii.catalog.TestcontainersConfiguration;
+import ar.edu.um.progii.catalog.sync.domain.model.SyncOrigin;
 import ar.edu.um.progii.catalog.sync.domain.model.SyncTrigger;
 import ar.edu.um.progii.catalog.sync.domain.ports.in.SyncCatalogUseCase;
 import java.util.List;
@@ -32,9 +33,9 @@ class CatalogSyncSchedulerWiringTest {
 		private final CountDownLatch twoSyncsReceived = new CountDownLatch(2);
 
 		@Override
-		public void syncCatalog(SyncTrigger trigger) {
+		public void syncCatalog(SyncOrigin syncOrigin) {
 
-			receivedTriggers.add(trigger);
+			receivedTriggers.add(syncOrigin.getTrigger());
 			twoSyncsReceived.countDown();
 
 		}

@@ -268,7 +268,7 @@ Se trabaja siempre **de adentro hacia afuera**: dominio → aplicación → infr
 3. La tarea programada solo dispara el puerto; el intervalo sale de una propiedad.
     - Lo que corre al arrancar el servicio va en la misma clase, en un método con `@EventListener(ApplicationReadyEvent.class)`.
     - Atrapa y loguea las excepciones del puerto, sin decidir nada con ellas. Una excepción que sale del arranque corta el inicio del servicio, y una que sale de `@Scheduled` solo ensucia el log.
-    - Si dispara solo, una propiedad `xxx.automatic-triggers-enabled` lo apaga con `@ConditionalOnProperty`. Los tests la ponen en `false` en `src/test/resources/config/application.properties`, que Spring carga además del principal.
+    - Si dispara solo, una propiedad `xxx.<disparador>-enabled` lo apaga con `@ConditionalOnProperty`, también al listener de Kafka. Los tests la ponen en `false` en `src/test/resources/config/application.properties`, que Spring carga además del principal. Para Kafka no alcanza `spring.kafka.listener.auto-startup=false`: cuando un test reusa un contexto cacheado, Spring lo reinicia y arranca todos los listeners.
 
 ### D. Agregar o cambiar un campo persistido
 
