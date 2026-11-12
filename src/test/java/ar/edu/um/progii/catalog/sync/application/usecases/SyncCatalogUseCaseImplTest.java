@@ -28,6 +28,7 @@ import ar.edu.um.progii.catalog.sync.domain.ports.in.RebuildCatalogFromSnapshotU
 import ar.edu.um.progii.catalog.sync.domain.ports.out.CatalogChangeSource;
 import ar.edu.um.progii.catalog.sync.domain.ports.out.CatalogReplicaWriter;
 import ar.edu.um.progii.catalog.sync.domain.ports.out.SyncLock;
+import ar.edu.um.progii.catalog.sync.domain.ports.out.SyncRunRepository;
 import ar.edu.um.progii.catalog.sync.domain.ports.out.SyncStateRepository;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -181,6 +182,18 @@ class SyncCatalogUseCaseImplTest {
 	}
 
 	// Reconstruye dejando la copia en snapshotVersion, o falla como lo haría la reconstrucción real
+	// Los eventId de los avisos que ya terminaron en SUCCESS o NOOP
+	static class InMemorySyncRunRepository implements SyncRunRepository {
+
+		private final Set<String> completedEventIds = new HashSet<>();
+
+		public boolean existsCompletedRunForEvent(String eventId) {
+
+			return completedEventIds.contains(eventId);
+
+		}
+	}
+
 	static class FakeRebuildCatalogFromSnapshotUseCase implements RebuildCatalogFromSnapshotUseCase {
 
 		private final InMemorySyncStateRepository syncStateRepository;
@@ -216,13 +229,15 @@ class SyncCatalogUseCaseImplTest {
 
 	private final CountingSyncLock syncLock = new CountingSyncLock();
 	private final InMemorySyncStateRepository syncStateRepository = new InMemorySyncStateRepository();
+	private final InMemorySyncRunRepository syncRunRepository = new InMemorySyncRunRepository();
 	private final InMemoryCatalogChangeSource catalogChangeSource = new InMemoryCatalogChangeSource();
 	private final InMemoryCatalogReplicaWriter catalogReplicaWriter = new InMemoryCatalogReplicaWriter(
 			syncStateRepository);
 	private final FakeRebuildCatalogFromSnapshotUseCase rebuildCatalogFromSnapshotUseCase = new FakeRebuildCatalogFromSnapshotUseCase(
 			syncStateRepository);
 	private final SyncCatalogUseCaseImpl syncCatalogUseCase = new SyncCatalogUseCaseImpl(syncLock,
-			syncStateRepository, catalogChangeSource, catalogReplicaWriter, rebuildCatalogFromSnapshotUseCase);
+			syncStateRepository, syncRunRepository, catalogChangeSource, catalogReplicaWriter,
+			rebuildCatalogFromSnapshotUseCase);
 
 	@Test
 	void recordsANoopWhenTheCopyIsUpToDate() {
@@ -240,6 +255,43 @@ class SyncCatalogUseCaseImplTest {
 		assertThat(syncStateRepository.currentState.getRemoteVersion()).isEqualTo(9L);
 		assertThat(rebuildCatalogFromSnapshotUseCase.rebuilds).isZero();
 		assertThat(syncLock.releases).isEqualTo(1);
+
+	}
+
+	// Sin versiones publicadas en el fake: si leyera la cátedra, fallaría
+	@Test
+	void recordsARepeatedNotificationWithoutReadingTheCatalog() {
+
+		syncStateRepository.currentState = NEVER_SYNCED_STATE.afterSnapshotApplied(9L, NOW);
+		SyncState stateBeforeTheNotification = syncStateRepository.currentState;
+		syncRunRepository.completedEventIds.add("catalog-event-9");
+
+		syncCatalogUseCase.syncCatalog(SyncOrigin.notification("catalog-event-9"));
+
+		assertThat(catalogReplicaWriter.recordedRuns).hasSize(1);
+		SyncRun repeatedNotificationRun = catalogReplicaWriter.recordedRuns.getFirst();
+		assertThat(repeatedNotificationRun.getRunResult()).isEqualTo(SyncRunResult.NOOP);
+		assertThat(repeatedNotificationRun.getEventId()).isEqualTo("catalog-event-9");
+		assertThat(repeatedNotificationRun.getFromVersion()).isEqualTo(9L);
+		assertThat(repeatedNotificationRun.getToVersion()).isEqualTo(9L);
+		assertThat(syncStateRepository.currentState).isSameAs(stateBeforeTheNotification);
+		assertThat(syncLock.releases).isEqualTo(1);
+
+	}
+
+	// Un aviso nuevo, aunque otro ya se haya procesado, sincroniza como siempre
+	@Test
+	void syncsANotificationThatWasNotProcessedYet() {
+
+		syncStateRepository.currentState = NEVER_SYNCED_STATE.afterSnapshotApplied(9L, NOW);
+		syncRunRepository.completedEventIds.add("catalog-event-8");
+		catalogChangeSource.publishedVersionsByRead.add(new PublishedVersions(9L, 4L));
+
+		syncCatalogUseCase.syncCatalog(SyncOrigin.notification("catalog-event-9"));
+
+		assertThat(catalogReplicaWriter.recordedRuns).hasSize(1);
+		assertThat(catalogReplicaWriter.recordedRuns.getFirst().getEventId()).isEqualTo("catalog-event-9");
+		assertThat(syncStateRepository.currentState.getRemoteVersion()).isEqualTo(9L);
 
 	}
 

@@ -21,6 +21,7 @@ import ar.edu.um.progii.catalog.sync.domain.ports.in.SyncCatalogUseCase;
 import ar.edu.um.progii.catalog.sync.domain.ports.out.CatalogChangeSource;
 import ar.edu.um.progii.catalog.sync.domain.ports.out.CatalogReplicaWriter;
 import ar.edu.um.progii.catalog.sync.domain.ports.out.SyncLock;
+import ar.edu.um.progii.catalog.sync.domain.ports.out.SyncRunRepository;
 import ar.edu.um.progii.catalog.sync.domain.ports.out.SyncStateRepository;
 import java.time.Instant;
 import java.util.Map;
@@ -32,7 +33,7 @@ import org.springframework.stereotype.Component;
 // CU-1. Cada pasada lee lo que publicó la cátedra, decide con SyncDecider y aplica los cambios de localVersion + 1 a
 // currentVersion en una sola escritura, o reconstruye desde el snapshot si la cadena no se puede verificar. Después
 // vuelve a mirar: si la cátedra publicó algo más mientras tanto, hace otra pasada (decisión 24). Las lecturas de la
-// cátedra quedan fuera de la escritura
+// cátedra quedan fuera de la escritura. Un aviso que ya se procesó solo se registra como NOOP (decisión 12)
 @Slf4j
 @Component
 @RequiredArgsConstructor
@@ -43,6 +44,7 @@ public class SyncCatalogUseCaseImpl implements SyncCatalogUseCase {
 
 	private final SyncLock syncLock;
 	private final SyncStateRepository syncStateRepository;
+	private final SyncRunRepository syncRunRepository;
 	private final CatalogChangeSource catalogChangeSource;
 	private final CatalogReplicaWriter catalogReplicaWriter;
 	private final RebuildCatalogFromSnapshotUseCase rebuildCatalogFromSnapshotUseCase;
@@ -67,6 +69,10 @@ public class SyncCatalogUseCaseImpl implements SyncCatalogUseCase {
 			throw new SyncAlreadyRunningException("Another synchronization is writing the catalog");
 		}
 		try {
+			if (isRepeatedNotification(syncOrigin)) {
+				recordRepeatedNotification(syncOrigin);
+				return;
+			}
 			boolean snapshotApplied = false;
 			for (int passNumber = 1; passNumber <= MAX_PASSES; passNumber++) {
 				PassOutcome passOutcome = runPass(syncOrigin, passNumber == 1, snapshotApplied);
@@ -186,6 +192,34 @@ public class SyncCatalogUseCaseImpl implements SyncCatalogUseCase {
 		}
 		rebuildCatalogFromSnapshotUseCase.rebuildCatalogFromSnapshot(syncOrigin);
 		return PassOutcome.APPLIED_SNAPSHOT;
+
+	}
+
+	// Se pregunta con el lock tomado: así un aviso que se está procesando ya terminó de registrarse
+	private boolean isRepeatedNotification(SyncOrigin syncOrigin) {
+
+		return syncOrigin.getEventId() != null && syncRunRepository.existsCompletedRunForEvent(syncOrigin.getEventId());
+
+	}
+
+	// La entrega de la cátedra es al menos una vez (anexo §18.1): el aviso repetido no lee la cátedra ni cambia el
+	// estado, solo deja constancia de que llegó
+	private void recordRepeatedNotification(SyncOrigin syncOrigin) {
+
+		Instant checkedAt = Instant.now();
+		SyncState currentState = syncStateRepository.findCurrent();
+		SyncRun repeatedNotificationRun = SyncRun.builder()
+				.triggerSource(syncOrigin.getTrigger())
+				.eventId(syncOrigin.getEventId())
+				.mode(SyncMode.INCREMENTAL)
+				.fromVersion(currentState.getAppliedVersion())
+				.toVersion(currentState.getAppliedVersion())
+				.runResult(SyncRunResult.NOOP)
+				.startedAt(checkedAt)
+				.finishedAt(checkedAt)
+				.build();
+		catalogReplicaWriter.recordRun(currentState, repeatedNotificationRun);
+		log.info("Notification {} was already processed; recorded as a no-op", syncOrigin.getEventId());
 
 	}
 
