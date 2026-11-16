@@ -11,7 +11,7 @@ import ar.edu.um.progii.catalog.sync.domain.model.SyncMode;
 import ar.edu.um.progii.catalog.sync.domain.model.SyncRun;
 import ar.edu.um.progii.catalog.sync.domain.model.SyncRunResult;
 import ar.edu.um.progii.catalog.sync.domain.model.SyncState;
-import ar.edu.um.progii.catalog.sync.domain.model.SyncTrigger;
+import ar.edu.um.progii.catalog.sync.domain.model.SyncOrigin;
 import ar.edu.um.progii.catalog.sync.domain.ports.in.RebuildCatalogFromSnapshotUseCase;
 import ar.edu.um.progii.catalog.sync.domain.ports.out.CatalogReplicaWriter;
 import ar.edu.um.progii.catalog.sync.domain.ports.out.CatalogSnapshotSource;
@@ -33,14 +33,14 @@ public class RebuildCatalogFromSnapshotUseCaseImpl implements RebuildCatalogFrom
 	private final CatalogReplicaWriter catalogReplicaWriter;
 
 	@Override
-	public void rebuildCatalogFromSnapshot(SyncTrigger trigger) {
+	public void rebuildCatalogFromSnapshot(SyncOrigin syncOrigin) {
 
 		// Llamado desde la incremental, que ya tiene el lock, lo vuelve a obtener: el lock admite volver a tomarlo
 		if (!syncLock.tryAcquire()) {
 			throw new SyncAlreadyRunningException("Another synchronization is writing the catalog");
 		}
 		try {
-			rebuild(trigger);
+			rebuild(syncOrigin);
 		} finally {
 			syncLock.release();
 		}
@@ -48,7 +48,7 @@ public class RebuildCatalogFromSnapshotUseCaseImpl implements RebuildCatalogFrom
 	}
 
 	// Si algo falla, registra la falla y relanza la excepción, para que quien llamó sepa por qué
-	private void rebuild(SyncTrigger trigger) {
+	private void rebuild(SyncOrigin syncOrigin) {
 
 		Instant startedAt = Instant.now();
 		SyncState currentState = syncStateRepository.findCurrent();
@@ -56,7 +56,8 @@ public class RebuildCatalogFromSnapshotUseCaseImpl implements RebuildCatalogFrom
 			CatalogSnapshot catalogSnapshot = catalogSnapshotSource.readSnapshot();
 			Instant appliedAt = Instant.now();
 			SyncRun successfulRun = SyncRun.builder()
-					.triggerSource(trigger)
+					.triggerSource(syncOrigin.getTrigger())
+					.eventId(syncOrigin.getEventId())
 					.mode(SyncMode.FULL)
 					.fromVersion(currentState.getAppliedVersion())
 					.toVersion(catalogSnapshot.getSnapshotVersion())
@@ -68,30 +69,32 @@ public class RebuildCatalogFromSnapshotUseCaseImpl implements RebuildCatalogFrom
 			catalogReplicaWriter.replaceAll(catalogSnapshot,
 					currentState.afterSnapshotApplied(catalogSnapshot.getSnapshotVersion(), appliedAt), successfulRun);
 		} catch (CatalogSourceUnavailableException unavailableException) {
-			recordFailure(trigger, currentState, startedAt, SyncErrorCode.CATALOG_SOURCE_UNAVAILABLE,
+			recordFailure(syncOrigin, currentState, startedAt, SyncErrorCode.CATALOG_SOURCE_UNAVAILABLE,
 					unavailableException);
 			throw unavailableException;
 		} catch (CatalogCredentialsRejectedException credentialsException) {
-			recordFailure(trigger, currentState, startedAt, SyncErrorCode.CATALOG_CREDENTIALS_REJECTED,
+			recordFailure(syncOrigin, currentState, startedAt, SyncErrorCode.CATALOG_CREDENTIALS_REJECTED,
 					credentialsException);
 			throw credentialsException;
 		} catch (InvalidCatalogSnapshotException invalidSnapshotException) {
-			recordFailure(trigger, currentState, startedAt, SyncErrorCode.INVALID_CATALOG_SNAPSHOT,
+			recordFailure(syncOrigin, currentState, startedAt, SyncErrorCode.INVALID_CATALOG_SNAPSHOT,
 					invalidSnapshotException);
 			throw invalidSnapshotException;
 		} catch (ReplicaWriteFailedException writeException) {
-			recordFailure(trigger, currentState, startedAt, SyncErrorCode.REPLICA_WRITE_FAILED, writeException);
+			recordFailure(syncOrigin, currentState, startedAt, SyncErrorCode.REPLICA_WRITE_FAILED, writeException);
 			throw writeException;
 		}
 
 	}
 
-	private void recordFailure(SyncTrigger trigger, SyncState currentState, Instant startedAt, SyncErrorCode errorCode,
+	private void recordFailure(SyncOrigin syncOrigin, SyncState currentState, Instant startedAt,
+			SyncErrorCode errorCode,
 			RuntimeException failureException) {
 
 		Instant failedAt = Instant.now();
 		SyncRun failedRun = SyncRun.builder()
-				.triggerSource(trigger)
+				.triggerSource(syncOrigin.getTrigger())
+				.eventId(syncOrigin.getEventId())
 				.mode(SyncMode.FULL)
 				.fromVersion(currentState.getAppliedVersion())
 				.runResult(SyncRunResult.FAILED)

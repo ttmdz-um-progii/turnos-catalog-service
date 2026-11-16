@@ -21,12 +21,14 @@ import ar.edu.um.progii.catalog.sync.domain.model.SyncRun;
 import ar.edu.um.progii.catalog.sync.domain.model.SyncRunResult;
 import ar.edu.um.progii.catalog.sync.domain.model.SyncState;
 import ar.edu.um.progii.catalog.sync.domain.model.SyncStatus;
+import ar.edu.um.progii.catalog.sync.domain.model.SyncOrigin;
 import ar.edu.um.progii.catalog.sync.domain.model.SyncTrigger;
 import ar.edu.um.progii.catalog.sync.domain.model.VersionChanges;
 import ar.edu.um.progii.catalog.sync.domain.ports.in.RebuildCatalogFromSnapshotUseCase;
 import ar.edu.um.progii.catalog.sync.domain.ports.out.CatalogChangeSource;
 import ar.edu.um.progii.catalog.sync.domain.ports.out.CatalogReplicaWriter;
 import ar.edu.um.progii.catalog.sync.domain.ports.out.SyncLock;
+import ar.edu.um.progii.catalog.sync.domain.ports.out.SyncRunRepository;
 import ar.edu.um.progii.catalog.sync.domain.ports.out.SyncStateRepository;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -180,6 +182,18 @@ class SyncCatalogUseCaseImplTest {
 	}
 
 	// Reconstruye dejando la copia en snapshotVersion, o falla como lo haría la reconstrucción real
+	// Los eventId de los avisos que ya terminaron en SUCCESS o NOOP
+	static class InMemorySyncRunRepository implements SyncRunRepository {
+
+		private final Set<String> completedEventIds = new HashSet<>();
+
+		public boolean existsCompletedRunForEvent(String eventId) {
+
+			return completedEventIds.contains(eventId);
+
+		}
+	}
+
 	static class FakeRebuildCatalogFromSnapshotUseCase implements RebuildCatalogFromSnapshotUseCase {
 
 		private final InMemorySyncStateRepository syncStateRepository;
@@ -193,7 +207,7 @@ class SyncCatalogUseCaseImplTest {
 
 		}
 
-		public void rebuildCatalogFromSnapshot(SyncTrigger trigger) {
+		public void rebuildCatalogFromSnapshot(SyncOrigin syncOrigin) {
 
 			rebuilds++;
 			if (failureToThrow != null) {
@@ -215,13 +229,15 @@ class SyncCatalogUseCaseImplTest {
 
 	private final CountingSyncLock syncLock = new CountingSyncLock();
 	private final InMemorySyncStateRepository syncStateRepository = new InMemorySyncStateRepository();
+	private final InMemorySyncRunRepository syncRunRepository = new InMemorySyncRunRepository();
 	private final InMemoryCatalogChangeSource catalogChangeSource = new InMemoryCatalogChangeSource();
 	private final InMemoryCatalogReplicaWriter catalogReplicaWriter = new InMemoryCatalogReplicaWriter(
 			syncStateRepository);
 	private final FakeRebuildCatalogFromSnapshotUseCase rebuildCatalogFromSnapshotUseCase = new FakeRebuildCatalogFromSnapshotUseCase(
 			syncStateRepository);
 	private final SyncCatalogUseCaseImpl syncCatalogUseCase = new SyncCatalogUseCaseImpl(syncLock,
-			syncStateRepository, catalogChangeSource, catalogReplicaWriter, rebuildCatalogFromSnapshotUseCase);
+			syncStateRepository, syncRunRepository, catalogChangeSource, catalogReplicaWriter,
+			rebuildCatalogFromSnapshotUseCase);
 
 	@Test
 	void recordsANoopWhenTheCopyIsUpToDate() {
@@ -229,15 +245,53 @@ class SyncCatalogUseCaseImplTest {
 		syncStateRepository.currentState = NEVER_SYNCED_STATE.afterSnapshotApplied(9L, NOW);
 		catalogChangeSource.publishedVersionsByRead.add(new PublishedVersions(9L, 4L));
 
-		syncCatalogUseCase.syncCatalog(SyncTrigger.NOTIFICATION);
+		syncCatalogUseCase.syncCatalog(SyncOrigin.notification("catalog-event-9"));
 
 		assertThat(catalogReplicaWriter.recordedRuns).hasSize(1);
 		SyncRun noopRun = catalogReplicaWriter.recordedRuns.getFirst();
 		assertThat(noopRun.getRunResult()).isEqualTo(SyncRunResult.NOOP);
 		assertThat(noopRun.getTriggerSource()).isEqualTo(SyncTrigger.NOTIFICATION);
+		assertThat(noopRun.getEventId()).isEqualTo("catalog-event-9");
 		assertThat(syncStateRepository.currentState.getRemoteVersion()).isEqualTo(9L);
 		assertThat(rebuildCatalogFromSnapshotUseCase.rebuilds).isZero();
 		assertThat(syncLock.releases).isEqualTo(1);
+
+	}
+
+	// Sin versiones publicadas en el fake: si leyera la cátedra, fallaría
+	@Test
+	void recordsARepeatedNotificationWithoutReadingTheCatalog() {
+
+		syncStateRepository.currentState = NEVER_SYNCED_STATE.afterSnapshotApplied(9L, NOW);
+		SyncState stateBeforeTheNotification = syncStateRepository.currentState;
+		syncRunRepository.completedEventIds.add("catalog-event-9");
+
+		syncCatalogUseCase.syncCatalog(SyncOrigin.notification("catalog-event-9"));
+
+		assertThat(catalogReplicaWriter.recordedRuns).hasSize(1);
+		SyncRun repeatedNotificationRun = catalogReplicaWriter.recordedRuns.getFirst();
+		assertThat(repeatedNotificationRun.getRunResult()).isEqualTo(SyncRunResult.NOOP);
+		assertThat(repeatedNotificationRun.getEventId()).isEqualTo("catalog-event-9");
+		assertThat(repeatedNotificationRun.getFromVersion()).isEqualTo(9L);
+		assertThat(repeatedNotificationRun.getToVersion()).isEqualTo(9L);
+		assertThat(syncStateRepository.currentState).isSameAs(stateBeforeTheNotification);
+		assertThat(syncLock.releases).isEqualTo(1);
+
+	}
+
+	// Un aviso nuevo, aunque otro ya se haya procesado, sincroniza como siempre
+	@Test
+	void syncsANotificationThatWasNotProcessedYet() {
+
+		syncStateRepository.currentState = NEVER_SYNCED_STATE.afterSnapshotApplied(9L, NOW);
+		syncRunRepository.completedEventIds.add("catalog-event-8");
+		catalogChangeSource.publishedVersionsByRead.add(new PublishedVersions(9L, 4L));
+
+		syncCatalogUseCase.syncCatalog(SyncOrigin.notification("catalog-event-9"));
+
+		assertThat(catalogReplicaWriter.recordedRuns).hasSize(1);
+		assertThat(catalogReplicaWriter.recordedRuns.getFirst().getEventId()).isEqualTo("catalog-event-9");
+		assertThat(syncStateRepository.currentState.getRemoteVersion()).isEqualTo(9L);
 
 	}
 
@@ -248,7 +302,7 @@ class SyncCatalogUseCaseImplTest {
 		rebuildCatalogFromSnapshotUseCase.snapshotVersion = 9L;
 		catalogChangeSource.publishedVersionsByRead.add(new PublishedVersions(9L, 4L));
 
-		syncCatalogUseCase.syncCatalog(SyncTrigger.STARTUP);
+		syncCatalogUseCase.syncCatalog(SyncOrigin.startup());
 
 		assertThat(rebuildCatalogFromSnapshotUseCase.rebuilds).isEqualTo(1);
 		// Solo la pasada después del snapshot leyó las versiones, y no registró un NOOP
@@ -265,7 +319,7 @@ class SyncCatalogUseCaseImplTest {
 		rebuildCatalogFromSnapshotUseCase.snapshotVersion = 7L;
 		catalogChangeSource.publishedVersionsByRead.add(new PublishedVersions(7L, 5L));
 
-		syncCatalogUseCase.syncCatalog(SyncTrigger.SCHEDULED);
+		syncCatalogUseCase.syncCatalog(SyncOrigin.scheduled());
 
 		assertThat(rebuildCatalogFromSnapshotUseCase.rebuilds).isEqualTo(1);
 		assertThat(syncStateRepository.currentState.getAppliedVersion()).isEqualTo(7L);
@@ -281,7 +335,7 @@ class SyncCatalogUseCaseImplTest {
 		// Falta la 8
 		catalogChangeSource.publishProfessionalChange(9L);
 
-		syncCatalogUseCase.syncCatalog(SyncTrigger.SCHEDULED);
+		syncCatalogUseCase.syncCatalog(SyncOrigin.scheduled());
 
 		assertThat(rebuildCatalogFromSnapshotUseCase.rebuilds).isEqualTo(1);
 		assertThat(catalogReplicaWriter.appliedChanges).isEmpty();
@@ -297,7 +351,7 @@ class SyncCatalogUseCaseImplTest {
 		// El cambio lista al profesional 15, pero el catálogo actual no lo tiene
 		catalogChangeSource.publishProfessionalChange(8L);
 
-		syncCatalogUseCase.syncCatalog(SyncTrigger.SCHEDULED);
+		syncCatalogUseCase.syncCatalog(SyncOrigin.scheduled());
 
 		assertThat(rebuildCatalogFromSnapshotUseCase.rebuilds).isEqualTo(1);
 		assertThat(catalogReplicaWriter.appliedChanges).isEmpty();
@@ -316,7 +370,7 @@ class SyncCatalogUseCaseImplTest {
 		catalogChangeSource.publishedProfessionalsById.put(15L, ANA_GOMEZ);
 		catalogChangeSource.publishedProfessionalsById.put(22L, LUIS_PEREZ);
 
-		syncCatalogUseCase.syncCatalog(SyncTrigger.SCHEDULED);
+		syncCatalogUseCase.syncCatalog(SyncOrigin.scheduled());
 
 		assertThat(catalogReplicaWriter.appliedChanges).hasSize(1);
 		CurrentCatalogEntities appliedEntities = catalogReplicaWriter.appliedChanges.getFirst();
@@ -347,7 +401,7 @@ class SyncCatalogUseCaseImplTest {
 		catalogReplicaWriter.applyFailureToThrow = new InconsistentChangesException("Broken reference",
 				new RuntimeException("foreign key"));
 
-		syncCatalogUseCase.syncCatalog(SyncTrigger.SCHEDULED);
+		syncCatalogUseCase.syncCatalog(SyncOrigin.scheduled());
 
 		assertThat(rebuildCatalogFromSnapshotUseCase.rebuilds).isEqualTo(1);
 		assertThat(syncStateRepository.currentState.getAppliedVersion()).isEqualTo(8L);
@@ -365,7 +419,7 @@ class SyncCatalogUseCaseImplTest {
 		catalogChangeSource.publishProfessionalChange(9L);
 		catalogChangeSource.publishedProfessionalsById.put(15L, ANA_GOMEZ);
 
-		syncCatalogUseCase.syncCatalog(SyncTrigger.NOTIFICATION);
+		syncCatalogUseCase.syncCatalog(SyncOrigin.notification("catalog-event-9"));
 
 		assertThat(catalogReplicaWriter.recordedRuns).hasSize(2);
 		assertThat(catalogReplicaWriter.recordedRuns.get(0).getToVersion()).isEqualTo(8L);
@@ -386,7 +440,7 @@ class SyncCatalogUseCaseImplTest {
 		}
 		catalogChangeSource.publishedProfessionalsById.put(15L, ANA_GOMEZ);
 
-		syncCatalogUseCase.syncCatalog(SyncTrigger.SCHEDULED);
+		syncCatalogUseCase.syncCatalog(SyncOrigin.scheduled());
 
 		assertThat(catalogReplicaWriter.recordedRuns).hasSize(5);
 		assertThat(syncStateRepository.currentState.getAppliedVersion()).isEqualTo(12L);
@@ -403,7 +457,7 @@ class SyncCatalogUseCaseImplTest {
 		// La cátedra informa la 9, pero nunca publicó los cambios de la 8 ni de la 9
 		catalogChangeSource.publishedVersionsByRead.add(new PublishedVersions(9L, 4L));
 
-		syncCatalogUseCase.syncCatalog(SyncTrigger.SCHEDULED);
+		syncCatalogUseCase.syncCatalog(SyncOrigin.scheduled());
 
 		assertThat(rebuildCatalogFromSnapshotUseCase.rebuilds).isEqualTo(1);
 		assertThat(syncLock.releases).isEqualTo(1);
@@ -418,7 +472,7 @@ class SyncCatalogUseCaseImplTest {
 				"Could not read catedra:sync:metadata");
 		catalogChangeSource.failureToThrow = unavailableException;
 
-		assertThatThrownBy(() -> syncCatalogUseCase.syncCatalog(SyncTrigger.SCHEDULED)).isSameAs(unavailableException);
+		assertThatThrownBy(() -> syncCatalogUseCase.syncCatalog(SyncOrigin.scheduled())).isSameAs(unavailableException);
 
 		assertThat(catalogReplicaWriter.recordedRuns).hasSize(1);
 		SyncRun failedRun = catalogReplicaWriter.recordedRuns.getFirst();
@@ -440,7 +494,7 @@ class SyncCatalogUseCaseImplTest {
 				"Could not reach /api/synchronization/snapshot");
 		rebuildCatalogFromSnapshotUseCase.failureToThrow = snapshotFailure;
 
-		assertThatThrownBy(() -> syncCatalogUseCase.syncCatalog(SyncTrigger.STARTUP)).isSameAs(snapshotFailure);
+		assertThatThrownBy(() -> syncCatalogUseCase.syncCatalog(SyncOrigin.startup())).isSameAs(snapshotFailure);
 
 		assertThat(catalogReplicaWriter.recordedRuns).isEmpty();
 		assertThat(syncLock.releases).isEqualTo(1);
@@ -452,7 +506,7 @@ class SyncCatalogUseCaseImplTest {
 
 		syncLock.takenByAnotherSync = true;
 
-		assertThatThrownBy(() -> syncCatalogUseCase.syncCatalog(SyncTrigger.SCHEDULED))
+		assertThatThrownBy(() -> syncCatalogUseCase.syncCatalog(SyncOrigin.scheduled()))
 				.isInstanceOf(SyncAlreadyRunningException.class);
 
 		assertThat(catalogChangeSource.versionReads).isZero();

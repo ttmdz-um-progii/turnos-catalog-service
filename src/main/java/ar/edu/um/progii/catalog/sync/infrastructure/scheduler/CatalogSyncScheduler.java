@@ -1,7 +1,7 @@
 package ar.edu.um.progii.catalog.sync.infrastructure.scheduler;
 
 import ar.edu.um.progii.catalog.sync.application.exception.SyncAlreadyRunningException;
-import ar.edu.um.progii.catalog.sync.domain.model.SyncTrigger;
+import ar.edu.um.progii.catalog.sync.domain.model.SyncOrigin;
 import ar.edu.um.progii.catalog.sync.domain.ports.in.SyncCatalogUseCase;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -25,27 +25,27 @@ public class CatalogSyncScheduler {
 	@EventListener(ApplicationReadyEvent.class)
 	public void syncCatalogOnStartup() {
 
-		syncCatalog(SyncTrigger.STARTUP);
+		syncCatalog(SyncOrigin.startup());
 
 	}
 
 	@Scheduled(fixedDelayString = "${catalog.sync.reconcile-interval}", initialDelayString = "${catalog.sync.reconcile-interval}")
 	public void reconcileCatalog() {
 
-		syncCatalog(SyncTrigger.SCHEDULED);
+		syncCatalog(SyncOrigin.scheduled());
 
 	}
 
 	// Una falla ya quedó registrada en sync_run y la próxima reconciliación vuelve a intentar. Acá solo se loguea: si
 	// la excepción saliera del arranque, Spring cortaría el inicio del servicio
-	private void syncCatalog(SyncTrigger trigger) {
+	private void syncCatalog(SyncOrigin syncOrigin) {
 
 		try {
-			syncCatalogUseCase.syncCatalog(trigger);
+			syncCatalogUseCase.syncCatalog(syncOrigin);
 		} catch (SyncAlreadyRunningException alreadyRunningException) {
-			log.info("Skipped the {} synchronization: another one is running", trigger);
+			log.info("Skipped the {} synchronization: another one is running", syncOrigin.getTrigger());
 		} catch (RuntimeException syncException) {
-			log.warn("The {} synchronization failed: {}", trigger, syncException.getMessage());
+			log.warn("The {} synchronization failed: {}", syncOrigin.getTrigger(), syncException.getMessage());
 		}
 
 	}
