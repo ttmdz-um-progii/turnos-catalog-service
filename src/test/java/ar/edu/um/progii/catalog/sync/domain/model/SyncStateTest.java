@@ -51,6 +51,8 @@ class SyncStateTest {
 
 		assertThat(stateAfterSnapshot.getAppliedVersion()).isEqualTo(7L);
 		assertThat(stateAfterSnapshot.getStatus()).isEqualTo(SyncStatus.IN_SYNC);
+		// El snapshot prueba que la cátedra llegó al menos a la 7
+		assertThat(stateAfterSnapshot.getRemoteVersion()).isEqualTo(7L);
 		assertThat(stateAfterSnapshot.getLastSuccessAt()).isEqualTo(NOW);
 		assertThat(stateAfterSnapshot.getLastAttemptAt()).isEqualTo(NOW);
 		assertThat(stateAfterSnapshot.getLastFullSyncAt()).isEqualTo(NOW);
