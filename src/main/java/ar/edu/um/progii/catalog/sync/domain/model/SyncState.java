@@ -84,6 +84,17 @@ public class SyncState {
 
 	}
 
+	// El estado cuando, después de aplicar un snapshot, la cátedra ya está en currentVersion y solo otro snapshot la
+	// alcanzaría: la copia es válida pero está atrasada, y la próxima ejecución vuelve a intentar
+	public SyncState afterSnapshotBehindCatalog(long currentVersion, Instant checkedAt) {
+
+		String errorMessage = "The catalog is at version " + currentVersion + " but the snapshot only reached "
+				+ appliedVersion;
+		return new SyncState(appliedVersion, currentVersion, SyncStatus.DEGRADED, lastSuccessAt, checkedAt,
+				lastFullSyncAt, consecutiveFailures + 1, SyncErrorCode.SNAPSHOT_BEHIND_CATALOG.name(), errorMessage);
+
+	}
+
 	private static SyncErrorCode validateErrorCode(SyncErrorCode errorCode) {
 
 		if (errorCode == null) {

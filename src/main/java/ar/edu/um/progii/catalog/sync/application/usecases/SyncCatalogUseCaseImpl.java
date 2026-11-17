@@ -96,7 +96,7 @@ public class SyncCatalogUseCaseImpl implements SyncCatalogUseCase {
 		SyncState currentState = syncStateRepository.findCurrent();
 		// Sin copia no hay desde dónde avanzar: no hace falta preguntarle nada a la cátedra
 		if (currentState.getAppliedVersion() == null) {
-			return rebuildFromSnapshot(syncOrigin, snapshotApplied);
+			return rebuildFromSnapshot(syncOrigin);
 		}
 		long localVersion = currentState.getAppliedVersion();
 
@@ -117,7 +117,8 @@ public class SyncCatalogUseCaseImpl implements SyncCatalogUseCase {
 				}
 				yield PassOutcome.FINISHED;
 			}
-			case SNAPSHOT -> rebuildFromSnapshot(syncOrigin, snapshotApplied);
+			case SNAPSHOT -> rebuildOnceFromSnapshot(syncOrigin, currentState, startedAt,
+					pendingChanges.currentVersion(), snapshotApplied);
 			case INCREMENTAL -> applyChanges(syncOrigin, currentState, startedAt, pendingChanges, snapshotApplied);
 		};
 
@@ -173,7 +174,8 @@ public class SyncCatalogUseCaseImpl implements SyncCatalogUseCase {
 		} catch (InconsistentChangesException inconsistentChangesException) {
 			// No es una falla pasajera: la copia no se puede verificar y se vuelve al snapshot
 			log.warn("{}; rebuilding from the snapshot", inconsistentChangesException.getMessage());
-			return rebuildFromSnapshot(syncOrigin, snapshotApplied);
+			return rebuildOnceFromSnapshot(syncOrigin, currentState, startedAt, pendingChanges.currentVersion(),
+					snapshotApplied);
 		} catch (ReplicaWriteFailedException writeException) {
 			recordFailure(syncOrigin, currentState, startedAt, SyncErrorCode.REPLICA_WRITE_FAILED, writeException);
 			throw writeException;
@@ -181,15 +183,22 @@ public class SyncCatalogUseCaseImpl implements SyncCatalogUseCase {
 
 	}
 
-	// La reconstrucción registra su propio resultado, también si falla: su excepción solo se deja pasar. Un segundo
-	// snapshot en la misma ejecución no arreglaría nada, porque la cátedra sigue publicando lo mismo: se corta y la
-	// próxima ejecución vuelve a intentar
-	private PassOutcome rebuildFromSnapshot(SyncOrigin syncOrigin, boolean snapshotApplied) {
+	// Un segundo snapshot en la misma ejecución no arreglaría nada, porque la cátedra sigue publicando lo mismo: se
+	// registra que la copia quedó atrasada y la próxima ejecución vuelve a intentar
+	private PassOutcome rebuildOnceFromSnapshot(SyncOrigin syncOrigin, SyncState currentState, Instant startedAt,
+			long currentVersion, boolean snapshotApplied) {
 
 		if (snapshotApplied) {
-			log.warn("The catalog still needs a snapshot after applying one; stopping until the next synchronization");
+			recordSnapshotBehindCatalog(syncOrigin, currentState, startedAt, currentVersion);
 			return PassOutcome.FINISHED;
 		}
+		return rebuildFromSnapshot(syncOrigin);
+
+	}
+
+	// La reconstrucción registra su propio resultado, también si falla: su excepción solo se deja pasar
+	private PassOutcome rebuildFromSnapshot(SyncOrigin syncOrigin) {
+
 		rebuildCatalogFromSnapshotUseCase.rebuildCatalogFromSnapshot(syncOrigin);
 		return PassOutcome.APPLIED_SNAPSHOT;
 
@@ -237,6 +246,27 @@ public class SyncCatalogUseCaseImpl implements SyncCatalogUseCase {
 				.finishedAt(checkedAt)
 				.build();
 		catalogReplicaWriter.recordRun(currentState.afterNoop(currentVersion, checkedAt), noopRun);
+
+	}
+
+	private void recordSnapshotBehindCatalog(SyncOrigin syncOrigin, SyncState currentState, Instant startedAt,
+			long currentVersion) {
+
+		Instant checkedAt = Instant.now();
+		SyncState stateBehindCatalog = currentState.afterSnapshotBehindCatalog(currentVersion, checkedAt);
+		SyncRun failedRun = SyncRun.builder()
+				.triggerSource(syncOrigin.getTrigger())
+				.eventId(syncOrigin.getEventId())
+				.mode(SyncMode.INCREMENTAL)
+				.fromVersion(currentState.getAppliedVersion())
+				.runResult(SyncRunResult.FAILED)
+				.startedAt(startedAt)
+				.finishedAt(checkedAt)
+				.errorCode(stateBehindCatalog.getLastErrorCode())
+				.errorMessage(stateBehindCatalog.getLastErrorMessage())
+				.build();
+		catalogReplicaWriter.recordRun(stateBehindCatalog, failedRun);
+		log.warn("{}; stopping until the next synchronization", stateBehindCatalog.getLastErrorMessage());
 
 	}
 

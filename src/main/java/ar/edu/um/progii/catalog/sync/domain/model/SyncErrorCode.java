@@ -10,5 +10,7 @@ public enum SyncErrorCode {
 	// Lo que publicó la cátedra no se puede leer o no es consistente
 	INVALID_CATALOG_SNAPSHOT,
 	// La copia local no se pudo escribir y quedó como estaba
-	REPLICA_WRITE_FAILED
+	REPLICA_WRITE_FAILED,
+	// Después de aplicar el snapshot, la cátedra ya está en una versión que solo otro snapshot alcanzaría
+	SNAPSHOT_BEHIND_CATALOG
 }
