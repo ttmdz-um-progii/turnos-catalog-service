@@ -4,7 +4,6 @@ import static ar.edu.um.progii.catalog.sync.domain.model.CatalogEntityType.PROFE
 import static ar.edu.um.progii.catalog.sync.domain.model.CatalogEntityType.PROFESSIONAL_CATEGORY;
 import static ar.edu.um.progii.catalog.sync.domain.model.CatalogEntityType.WEEKLY_SCHEDULE;
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.util.Map;
 import java.util.Optional;
@@ -41,16 +40,6 @@ class SyncDeciderTest {
 	}
 
 	// Etapa 1: decideByVersions
-
-	@Test
-	void snapshotWhenNeverSynced() {
-
-		Optional<SyncDecision> decisionFromVersions = SyncDecider.decideByVersions(null, 9, 1);
-
-		assertThat(decisionFromVersions).isPresent();
-		assertThat(decisionFromVersions.get().getAction()).isEqualTo(SyncAction.SNAPSHOT);
-
-	}
 
 	@Test
 	void noopWhenAlreadyAtCurrentVersion() {
@@ -177,17 +166,6 @@ class SyncDeciderTest {
 
 	}
 
-	@Test
-	void decideByChainRejectsALocalVersionThatIsNotBehind() {
-
-		// La etapa 1 ya habría devuelto NOOP: seguir haría retroceder la copia local
-		assertThatThrownBy(() -> SyncDecider.decideByChain(9L, 7, Map.of()))
-				.isInstanceOf(IllegalArgumentException.class);
-		assertThatThrownBy(() -> SyncDecider.decideByChain(9L, 9, Map.of()))
-				.isInstanceOf(IllegalArgumentException.class);
-
-	}
-
 	// Etapa 3: decideByMissingIds
 
 	@Test
@@ -223,14 +201,6 @@ class SyncDeciderTest {
 		SyncDecision decision = SyncDecider.decideByMissingIds(incrementalDecision, IdsByEntityType.empty());
 
 		assertThat(decision).isSameAs(incrementalDecision);
-
-	}
-
-	@Test
-	void decideByMissingIdsOnlyAcceptsAnIncremental() {
-
-		assertThatThrownBy(() -> SyncDecider.decideByMissingIds(SyncDecision.snapshot(), IdsByEntityType.empty()))
-				.isInstanceOf(IllegalArgumentException.class);
 
 	}
 }

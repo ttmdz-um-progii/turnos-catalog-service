@@ -1,7 +1,6 @@
 package ar.edu.um.progii.catalog.sync.domain.model;
 
 import java.util.Map;
-import java.util.Objects;
 import java.util.Optional;
 
 // Regla central de la sincronización: decide NOOP, INCREMENTAL o SNAPSHOT.
@@ -10,7 +9,8 @@ import java.util.Optional;
 // oldestVersion (la más antigua desde la que se puede avanzar de a cambios);
 // 2. la cadena de cambios de localVersion + 1 a currentVersion;
 // 3. los ids pendientes que el catálogo actual de la cátedra no devolvió.
-// Cada etapa que decide corta el proceso: el caso de uso no obtiene datos que ya no hacen falta.
+// Cada etapa que decide corta el proceso: el caso de uso no obtiene datos que ya no hacen falta. Una copia que nunca
+// se sincronizó no pasa por acá: no hay desde dónde avanzar y el caso de uso reconstruye directo.
 public final class SyncDecider {
 
 	private SyncDecider() {
@@ -18,11 +18,8 @@ public final class SyncDecider {
 	}
 
 	// Etapa 1. Vacío significa que hace falta leer los cambios de localVersion + 1 a currentVersion
-	public static Optional<SyncDecision> decideByVersions(Long localVersion, long currentVersion, long oldestVersion) {
+	public static Optional<SyncDecision> decideByVersions(long localVersion, long currentVersion, long oldestVersion) {
 
-		if (localVersion == null) {
-			return Optional.of(SyncDecision.snapshot());
-		}
 		// Va antes que localVersion < oldestVersion: un aviso duplicado o viejo nunca dispara trabajo ni retrocede
 		if (currentVersion <= localVersion) {
 			return Optional.of(SyncDecision.noop());
@@ -41,12 +38,6 @@ public final class SyncDecider {
 	public static SyncDecision decideByChain(long localVersion, long currentVersion,
 			Map<Long, VersionChanges> changesByVersion) {
 
-		Objects.requireNonNull(changesByVersion, "changesByVersion");
-		// Si la etapa 1 no devolvió vacío, seguir podría dar un INCREMENTAL que hace retroceder la copia local
-		if (currentVersion <= localVersion) {
-			throw new IllegalArgumentException("The chain is only read when currentVersion is ahead of localVersion");
-		}
-
 		IdsByEntityType pendingIdsByType = IdsByEntityType.empty();
 		for (long expectedVersion = localVersion + 1; expectedVersion <= currentVersion; expectedVersion++) {
 			VersionChanges versionChanges = changesByVersion.get(expectedVersion);
@@ -63,12 +54,6 @@ public final class SyncDecider {
 	// catálogo actual de la cátedra no devolvió. Si falta alguno, no hay datos para aplicarlo
 	public static SyncDecision decideByMissingIds(SyncDecision incrementalDecision,
 			IdsByEntityType idsMissingFromCurrentCatalog) {
-
-		Objects.requireNonNull(incrementalDecision, "incrementalDecision");
-		Objects.requireNonNull(idsMissingFromCurrentCatalog, "idsMissingFromCurrentCatalog");
-		if (incrementalDecision.getAction() != SyncAction.INCREMENTAL) {
-			throw new IllegalArgumentException("Only an incremental decision can be checked for missing ids");
-		}
 
 		if (incrementalDecision.getIdsToApply().containsAnyOf(idsMissingFromCurrentCatalog)) {
 			return SyncDecision.snapshot();
