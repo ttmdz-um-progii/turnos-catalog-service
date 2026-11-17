@@ -112,7 +112,9 @@ public class SyncCatalogUseCaseImpl implements SyncCatalogUseCase {
 			case NOOP -> {
 				// Una pasada posterior que no encuentra nada solo confirma lo que ya se registró
 				if (firstPass) {
-					recordNoop(syncOrigin, currentState, startedAt, pendingChanges.currentVersion());
+					Instant checkedAt = Instant.now();
+					recordNoop(syncOrigin, currentState,
+							currentState.afterNoop(pendingChanges.currentVersion(), checkedAt), startedAt, checkedAt);
 				}
 				yield PassOutcome.FINISHED;
 			}
@@ -216,24 +218,15 @@ public class SyncCatalogUseCaseImpl implements SyncCatalogUseCase {
 
 		Instant checkedAt = Instant.now();
 		SyncState currentState = syncStateRepository.findCurrent();
-		SyncRun repeatedNotificationRun = SyncRun.builder()
-				.triggerSource(syncOrigin.getTrigger())
-				.eventId(syncOrigin.getEventId())
-				.mode(SyncMode.INCREMENTAL)
-				.fromVersion(currentState.getAppliedVersion())
-				.toVersion(currentState.getAppliedVersion())
-				.runResult(SyncRunResult.NOOP)
-				.startedAt(checkedAt)
-				.finishedAt(checkedAt)
-				.build();
-		catalogReplicaWriter.recordRun(currentState, repeatedNotificationRun);
+		recordNoop(syncOrigin, currentState, currentState, checkedAt, checkedAt);
 		log.info("Notification {} was already processed; recorded as a no-op", syncOrigin.getEventId());
 
 	}
 
-	private void recordNoop(SyncOrigin syncOrigin, SyncState currentState, Instant startedAt, long currentVersion) {
+	// La copia no cambia: la ejecución va de su versión a la misma
+	private void recordNoop(SyncOrigin syncOrigin, SyncState currentState, SyncState stateAfterRun, Instant startedAt,
+			Instant checkedAt) {
 
-		Instant checkedAt = Instant.now();
 		SyncRun noopRun = SyncRun.builder()
 				.triggerSource(syncOrigin.getTrigger())
 				.eventId(syncOrigin.getEventId())
@@ -244,7 +237,7 @@ public class SyncCatalogUseCaseImpl implements SyncCatalogUseCase {
 				.startedAt(startedAt)
 				.finishedAt(checkedAt)
 				.build();
-		catalogReplicaWriter.recordRun(currentState.afterNoop(currentVersion, checkedAt), noopRun);
+		catalogReplicaWriter.recordRun(stateAfterRun, noopRun);
 
 	}
 
