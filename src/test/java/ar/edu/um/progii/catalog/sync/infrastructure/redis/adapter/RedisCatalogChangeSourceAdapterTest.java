@@ -195,7 +195,7 @@ class RedisCatalogChangeSourceAdapterTest {
 		assertThat(weeklySchedule.getSlotDurationMinutes()).isEqualTo(30);
 		assertThat(weeklySchedule.isEnabled()).isTrue();
 
-		assertThat(currentCatalogEntities.getIdsMissingFromCurrentCatalog().isEmpty()).isTrue();
+		assertThat(currentCatalogEntities.getIdsMissingFromCurrentCatalog()).isEqualTo(IdsByEntityType.empty());
 
 	}
 

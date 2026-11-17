@@ -148,7 +148,7 @@ class SyncDeciderTest {
 		SyncDecision decision = SyncDecider.decideByChain(6L, 7, changesByVersion);
 
 		assertThat(decision.getAction()).isEqualTo(SyncAction.INCREMENTAL);
-		assertThat(decision.getIdsToApply().isEmpty()).isTrue();
+		assertThat(decision.getIdsToApply()).isEqualTo(IdsByEntityType.empty());
 
 	}
 
