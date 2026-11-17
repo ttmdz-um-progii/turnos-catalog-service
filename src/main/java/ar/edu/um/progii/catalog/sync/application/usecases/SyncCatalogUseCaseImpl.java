@@ -4,12 +4,12 @@ import ar.edu.um.progii.catalog.sync.application.exception.CatalogSourceUnavaila
 import ar.edu.um.progii.catalog.sync.application.exception.InconsistentChangesException;
 import ar.edu.um.progii.catalog.sync.application.exception.ReplicaWriteFailedException;
 import ar.edu.um.progii.catalog.sync.application.exception.SyncAlreadyRunningException;
+import ar.edu.um.progii.catalog.sync.application.exception.SyncFailureException;
 import ar.edu.um.progii.catalog.sync.domain.model.CurrentCatalogEntities;
 import ar.edu.um.progii.catalog.sync.domain.model.PublishedVersions;
 import ar.edu.um.progii.catalog.sync.domain.model.SyncAction;
 import ar.edu.um.progii.catalog.sync.domain.model.SyncDecider;
 import ar.edu.um.progii.catalog.sync.domain.model.SyncDecision;
-import ar.edu.um.progii.catalog.sync.domain.model.SyncErrorCode;
 import ar.edu.um.progii.catalog.sync.domain.model.SyncMode;
 import ar.edu.um.progii.catalog.sync.domain.model.SyncRun;
 import ar.edu.um.progii.catalog.sync.domain.model.SyncRunResult;
@@ -104,8 +104,7 @@ public class SyncCatalogUseCaseImpl implements SyncCatalogUseCase {
 		try {
 			pendingChanges = readPendingChanges(localVersion);
 		} catch (CatalogSourceUnavailableException unavailableException) {
-			recordFailure(syncOrigin, currentState, startedAt, SyncErrorCode.CATALOG_SOURCE_UNAVAILABLE,
-					unavailableException);
+			recordFailure(syncOrigin, currentState, startedAt, unavailableException);
 			throw unavailableException;
 		}
 
@@ -177,7 +176,7 @@ public class SyncCatalogUseCaseImpl implements SyncCatalogUseCase {
 			return rebuildOnceFromSnapshot(syncOrigin, currentState, startedAt, pendingChanges.currentVersion(),
 					snapshotApplied);
 		} catch (ReplicaWriteFailedException writeException) {
-			recordFailure(syncOrigin, currentState, startedAt, SyncErrorCode.REPLICA_WRITE_FAILED, writeException);
+			recordFailure(syncOrigin, currentState, startedAt, writeException);
 			throw writeException;
 		}
 
@@ -271,8 +270,7 @@ public class SyncCatalogUseCaseImpl implements SyncCatalogUseCase {
 	}
 
 	private void recordFailure(SyncOrigin syncOrigin, SyncState currentState, Instant startedAt,
-			SyncErrorCode errorCode,
-			RuntimeException failureException) {
+			SyncFailureException syncFailureException) {
 
 		Instant failedAt = Instant.now();
 		SyncRun failedRun = SyncRun.builder()
@@ -283,10 +281,12 @@ public class SyncCatalogUseCaseImpl implements SyncCatalogUseCase {
 				.runResult(SyncRunResult.FAILED)
 				.startedAt(startedAt)
 				.finishedAt(failedAt)
-				.errorCode(errorCode.name())
-				.errorMessage(failureException.getMessage())
+				.errorCode(syncFailureException.getErrorCode().name())
+				.errorMessage(syncFailureException.getMessage())
 				.build();
-		catalogReplicaWriter.recordRun(currentState.afterFailure(errorCode, failureException.getMessage(), failedAt),
+		catalogReplicaWriter.recordRun(
+				currentState.afterFailure(syncFailureException.getErrorCode(), syncFailureException.getMessage(),
+						failedAt),
 				failedRun);
 
 	}
