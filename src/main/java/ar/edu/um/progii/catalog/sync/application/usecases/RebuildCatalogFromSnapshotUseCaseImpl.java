@@ -1,12 +1,8 @@
 package ar.edu.um.progii.catalog.sync.application.usecases;
 
-import ar.edu.um.progii.catalog.sync.application.exception.CatalogCredentialsRejectedException;
-import ar.edu.um.progii.catalog.sync.application.exception.CatalogSourceUnavailableException;
-import ar.edu.um.progii.catalog.sync.application.exception.InvalidCatalogSnapshotException;
-import ar.edu.um.progii.catalog.sync.application.exception.ReplicaWriteFailedException;
 import ar.edu.um.progii.catalog.sync.application.exception.SyncAlreadyRunningException;
+import ar.edu.um.progii.catalog.sync.application.exception.SyncFailureException;
 import ar.edu.um.progii.catalog.sync.domain.model.CatalogSnapshot;
-import ar.edu.um.progii.catalog.sync.domain.model.SyncErrorCode;
 import ar.edu.um.progii.catalog.sync.domain.model.SyncMode;
 import ar.edu.um.progii.catalog.sync.domain.model.SyncRun;
 import ar.edu.um.progii.catalog.sync.domain.model.SyncRunResult;
@@ -68,28 +64,15 @@ public class RebuildCatalogFromSnapshotUseCaseImpl implements RebuildCatalogFrom
 					.build();
 			catalogReplicaWriter.replaceAll(catalogSnapshot,
 					currentState.afterSnapshotApplied(catalogSnapshot.getSnapshotVersion(), appliedAt), successfulRun);
-		} catch (CatalogSourceUnavailableException unavailableException) {
-			recordFailure(syncOrigin, currentState, startedAt, SyncErrorCode.CATALOG_SOURCE_UNAVAILABLE,
-					unavailableException);
-			throw unavailableException;
-		} catch (CatalogCredentialsRejectedException credentialsException) {
-			recordFailure(syncOrigin, currentState, startedAt, SyncErrorCode.CATALOG_CREDENTIALS_REJECTED,
-					credentialsException);
-			throw credentialsException;
-		} catch (InvalidCatalogSnapshotException invalidSnapshotException) {
-			recordFailure(syncOrigin, currentState, startedAt, SyncErrorCode.INVALID_CATALOG_SNAPSHOT,
-					invalidSnapshotException);
-			throw invalidSnapshotException;
-		} catch (ReplicaWriteFailedException writeException) {
-			recordFailure(syncOrigin, currentState, startedAt, SyncErrorCode.REPLICA_WRITE_FAILED, writeException);
-			throw writeException;
+		} catch (SyncFailureException syncFailureException) {
+			recordFailure(syncOrigin, currentState, startedAt, syncFailureException);
+			throw syncFailureException;
 		}
 
 	}
 
 	private void recordFailure(SyncOrigin syncOrigin, SyncState currentState, Instant startedAt,
-			SyncErrorCode errorCode,
-			RuntimeException failureException) {
+			SyncFailureException syncFailureException) {
 
 		Instant failedAt = Instant.now();
 		SyncRun failedRun = SyncRun.builder()
@@ -100,11 +83,13 @@ public class RebuildCatalogFromSnapshotUseCaseImpl implements RebuildCatalogFrom
 				.runResult(SyncRunResult.FAILED)
 				.startedAt(startedAt)
 				.finishedAt(failedAt)
-				.errorCode(errorCode.name())
-				.errorMessage(failureException.getMessage())
+				.errorCode(syncFailureException.getErrorCode().name())
+				.errorMessage(syncFailureException.getMessage())
 				.build();
 		catalogReplicaWriter.recordRun(
-				currentState.afterFailure(errorCode, failureException.getMessage(), failedAt), failedRun);
+				currentState.afterFailure(syncFailureException.getErrorCode(), syncFailureException.getMessage(),
+						failedAt),
+				failedRun);
 
 	}
 

@@ -4,12 +4,12 @@ import ar.edu.um.progii.catalog.sync.application.exception.CatalogSourceUnavaila
 import ar.edu.um.progii.catalog.sync.application.exception.InconsistentChangesException;
 import ar.edu.um.progii.catalog.sync.application.exception.ReplicaWriteFailedException;
 import ar.edu.um.progii.catalog.sync.application.exception.SyncAlreadyRunningException;
+import ar.edu.um.progii.catalog.sync.application.exception.SyncFailureException;
 import ar.edu.um.progii.catalog.sync.domain.model.CurrentCatalogEntities;
 import ar.edu.um.progii.catalog.sync.domain.model.PublishedVersions;
 import ar.edu.um.progii.catalog.sync.domain.model.SyncAction;
 import ar.edu.um.progii.catalog.sync.domain.model.SyncDecider;
 import ar.edu.um.progii.catalog.sync.domain.model.SyncDecision;
-import ar.edu.um.progii.catalog.sync.domain.model.SyncErrorCode;
 import ar.edu.um.progii.catalog.sync.domain.model.SyncMode;
 import ar.edu.um.progii.catalog.sync.domain.model.SyncRun;
 import ar.edu.um.progii.catalog.sync.domain.model.SyncRunResult;
@@ -104,8 +104,7 @@ public class SyncCatalogUseCaseImpl implements SyncCatalogUseCase {
 		try {
 			pendingChanges = readPendingChanges(localVersion);
 		} catch (CatalogSourceUnavailableException unavailableException) {
-			recordFailure(syncOrigin, currentState, startedAt, SyncErrorCode.CATALOG_SOURCE_UNAVAILABLE,
-					unavailableException);
+			recordFailure(syncOrigin, currentState, startedAt, unavailableException);
 			throw unavailableException;
 		}
 
@@ -113,7 +112,9 @@ public class SyncCatalogUseCaseImpl implements SyncCatalogUseCase {
 			case NOOP -> {
 				// Una pasada posterior que no encuentra nada solo confirma lo que ya se registró
 				if (firstPass) {
-					recordNoop(syncOrigin, currentState, startedAt, pendingChanges.currentVersion());
+					Instant checkedAt = Instant.now();
+					recordNoop(syncOrigin, currentState,
+							currentState.afterNoop(pendingChanges.currentVersion(), checkedAt), startedAt, checkedAt);
 				}
 				yield PassOutcome.FINISHED;
 			}
@@ -177,7 +178,7 @@ public class SyncCatalogUseCaseImpl implements SyncCatalogUseCase {
 			return rebuildOnceFromSnapshot(syncOrigin, currentState, startedAt, pendingChanges.currentVersion(),
 					snapshotApplied);
 		} catch (ReplicaWriteFailedException writeException) {
-			recordFailure(syncOrigin, currentState, startedAt, SyncErrorCode.REPLICA_WRITE_FAILED, writeException);
+			recordFailure(syncOrigin, currentState, startedAt, writeException);
 			throw writeException;
 		}
 
@@ -217,24 +218,15 @@ public class SyncCatalogUseCaseImpl implements SyncCatalogUseCase {
 
 		Instant checkedAt = Instant.now();
 		SyncState currentState = syncStateRepository.findCurrent();
-		SyncRun repeatedNotificationRun = SyncRun.builder()
-				.triggerSource(syncOrigin.getTrigger())
-				.eventId(syncOrigin.getEventId())
-				.mode(SyncMode.INCREMENTAL)
-				.fromVersion(currentState.getAppliedVersion())
-				.toVersion(currentState.getAppliedVersion())
-				.runResult(SyncRunResult.NOOP)
-				.startedAt(checkedAt)
-				.finishedAt(checkedAt)
-				.build();
-		catalogReplicaWriter.recordRun(currentState, repeatedNotificationRun);
+		recordNoop(syncOrigin, currentState, currentState, checkedAt, checkedAt);
 		log.info("Notification {} was already processed; recorded as a no-op", syncOrigin.getEventId());
 
 	}
 
-	private void recordNoop(SyncOrigin syncOrigin, SyncState currentState, Instant startedAt, long currentVersion) {
+	// La copia no cambia: la ejecución va de su versión a la misma
+	private void recordNoop(SyncOrigin syncOrigin, SyncState currentState, SyncState stateAfterRun, Instant startedAt,
+			Instant checkedAt) {
 
-		Instant checkedAt = Instant.now();
 		SyncRun noopRun = SyncRun.builder()
 				.triggerSource(syncOrigin.getTrigger())
 				.eventId(syncOrigin.getEventId())
@@ -245,7 +237,7 @@ public class SyncCatalogUseCaseImpl implements SyncCatalogUseCase {
 				.startedAt(startedAt)
 				.finishedAt(checkedAt)
 				.build();
-		catalogReplicaWriter.recordRun(currentState.afterNoop(currentVersion, checkedAt), noopRun);
+		catalogReplicaWriter.recordRun(stateAfterRun, noopRun);
 
 	}
 
@@ -271,8 +263,7 @@ public class SyncCatalogUseCaseImpl implements SyncCatalogUseCase {
 	}
 
 	private void recordFailure(SyncOrigin syncOrigin, SyncState currentState, Instant startedAt,
-			SyncErrorCode errorCode,
-			RuntimeException failureException) {
+			SyncFailureException syncFailureException) {
 
 		Instant failedAt = Instant.now();
 		SyncRun failedRun = SyncRun.builder()
@@ -283,10 +274,12 @@ public class SyncCatalogUseCaseImpl implements SyncCatalogUseCase {
 				.runResult(SyncRunResult.FAILED)
 				.startedAt(startedAt)
 				.finishedAt(failedAt)
-				.errorCode(errorCode.name())
-				.errorMessage(failureException.getMessage())
+				.errorCode(syncFailureException.getErrorCode().name())
+				.errorMessage(syncFailureException.getMessage())
 				.build();
-		catalogReplicaWriter.recordRun(currentState.afterFailure(errorCode, failureException.getMessage(), failedAt),
+		catalogReplicaWriter.recordRun(
+				currentState.afterFailure(syncFailureException.getErrorCode(), syncFailureException.getMessage(),
+						failedAt),
 				failedRun);
 
 	}
