@@ -12,6 +12,7 @@ class SyncStateTest {
 
 	private static final Instant PREVIOUS_ATTEMPT_AT = Instant.parse("2026-09-10T13:00:00Z");
 	private static final Instant NOW = Instant.parse("2026-09-10T14:00:00Z");
+	private static final Instant LATER = Instant.parse("2026-09-10T14:02:00Z");
 
 	private static final SyncState NEVER_SYNCED_STATE = new SyncState(null, null, SyncStatus.EMPTY, null, null, null,
 			0, null, null);
@@ -50,6 +51,8 @@ class SyncStateTest {
 		SyncState stateAfterSnapshot = FAILING_STATE_WITH_DATA.afterSnapshotApplied(7L, NOW);
 
 		assertThat(stateAfterSnapshot.getAppliedVersion()).isEqualTo(7L);
+		// El snapshot prueba que la cátedra llegó al menos a la 7
+		assertThat(stateAfterSnapshot.getRemoteVersion()).isEqualTo(7L);
 		assertThat(stateAfterSnapshot.getStatus()).isEqualTo(SyncStatus.IN_SYNC);
 		assertThat(stateAfterSnapshot.getLastSuccessAt()).isEqualTo(NOW);
 		assertThat(stateAfterSnapshot.getLastAttemptAt()).isEqualTo(NOW);
@@ -71,6 +74,26 @@ class SyncStateTest {
 
 		assertThat(stateAfterSnapshot.getStatus()).isEqualTo(SyncStatus.DEGRADED);
 		assertThat(stateAfterSnapshot.getRemoteVersion()).isEqualTo(9L);
+
+	}
+
+	// La copia quedó en la 7 por el snapshot, y la cátedra ya está en la 9 sin cambios que la conecten
+	@Test
+	void goesDegradedWhenTheSnapshotIsBehindTheCatalog() {
+
+		SyncState stateAfterSnapshot = FAILING_STATE_WITH_DATA.afterSnapshotApplied(7L, NOW);
+
+		SyncState stateBehindCatalog = stateAfterSnapshot.afterSnapshotBehindCatalog(9L, LATER);
+
+		assertThat(stateBehindCatalog.getAppliedVersion()).isEqualTo(7L);
+		assertThat(stateBehindCatalog.getRemoteVersion()).isEqualTo(9L);
+		assertThat(stateBehindCatalog.getStatus()).isEqualTo(SyncStatus.DEGRADED);
+		assertThat(stateBehindCatalog.getLastSuccessAt()).isEqualTo(NOW);
+		assertThat(stateBehindCatalog.getLastAttemptAt()).isEqualTo(LATER);
+		assertThat(stateBehindCatalog.getConsecutiveFailures()).isEqualTo(1);
+		assertThat(stateBehindCatalog.getLastErrorCode()).isEqualTo("SNAPSHOT_BEHIND_CATALOG");
+		assertThat(stateBehindCatalog.getLastErrorMessage())
+				.isEqualTo("The catalog is at version 9 but the snapshot only reached 7");
 
 	}
 

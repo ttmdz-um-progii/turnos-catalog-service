@@ -460,6 +460,16 @@ class SyncCatalogUseCaseImplTest {
 		syncCatalogUseCase.syncCatalog(SyncOrigin.scheduled());
 
 		assertThat(rebuildCatalogFromSnapshotUseCase.rebuilds).isEqualTo(1);
+		// La copia es válida pero quedó atrás de la 9: el estado lo dice y la ejecución queda como fallida
+		assertThat(catalogReplicaWriter.recordedRuns).hasSize(1);
+		SyncRun failedRun = catalogReplicaWriter.recordedRuns.getFirst();
+		assertThat(failedRun.getRunResult()).isEqualTo(SyncRunResult.FAILED);
+		assertThat(failedRun.getFromVersion()).isEqualTo(7L);
+		assertThat(failedRun.getErrorCode()).isEqualTo("SNAPSHOT_BEHIND_CATALOG");
+		SyncState stateBehindCatalog = syncStateRepository.currentState;
+		assertThat(stateBehindCatalog.getStatus()).isEqualTo(SyncStatus.DEGRADED);
+		assertThat(stateBehindCatalog.getAppliedVersion()).isEqualTo(7L);
+		assertThat(stateBehindCatalog.getRemoteVersion()).isEqualTo(9L);
 		assertThat(syncLock.releases).isEqualTo(1);
 
 	}

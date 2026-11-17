@@ -39,13 +39,14 @@ public class SyncState {
 	}
 
 	// El estado después de reemplazar la copia por el snapshot: queda al día salvo que ya se sepa de una versión más
-	// nueva en la cátedra, y la racha de fallas se corta
+	// nueva en la cátedra, y la racha de fallas se corta. El snapshot prueba que la cátedra llegó al menos a su versión
 	public SyncState afterSnapshotApplied(long snapshotVersion, Instant appliedAt) {
 
 		boolean newerVersionKnown = remoteVersion != null && remoteVersion > snapshotVersion;
 		SyncStatus statusAfterSnapshot = newerVersionKnown ? SyncStatus.DEGRADED : SyncStatus.IN_SYNC;
-		return new SyncState(snapshotVersion, remoteVersion, statusAfterSnapshot, appliedAt, appliedAt, appliedAt, 0,
-				null, null);
+		long latestKnownVersion = newerVersionKnown ? remoteVersion : snapshotVersion;
+		return new SyncState(snapshotVersion, latestKnownVersion, statusAfterSnapshot, appliedAt, appliedAt, appliedAt,
+				0, null, null);
 
 	}
 
@@ -80,6 +81,17 @@ public class SyncState {
 		}
 		return new SyncState(appliedVersion, remoteVersion, statusAfterFailure, lastSuccessAt, attemptedAt,
 				lastFullSyncAt, consecutiveFailures + 1, errorCode.name(), errorMessage);
+
+	}
+
+	// El estado cuando, después de aplicar un snapshot, la cátedra ya está en currentVersion y solo otro snapshot la
+	// alcanzaría: la copia es válida pero está atrasada, y la próxima ejecución vuelve a intentar
+	public SyncState afterSnapshotBehindCatalog(long currentVersion, Instant checkedAt) {
+
+		String errorMessage = "The catalog is at version " + currentVersion + " but the snapshot only reached "
+				+ appliedVersion;
+		return new SyncState(appliedVersion, currentVersion, SyncStatus.DEGRADED, lastSuccessAt, checkedAt,
+				lastFullSyncAt, consecutiveFailures + 1, SyncErrorCode.SNAPSHOT_BEHIND_CATALOG.name(), errorMessage);
 
 	}
 
