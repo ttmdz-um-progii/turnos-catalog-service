@@ -47,6 +47,8 @@ Cada regla va con su motivo. Romper una es un error, aunque compile.
 10. Las excepciones de negocio van en `application/exception`, extienden `RuntimeException` y se llaman `<Motivo>Exception`.
     - Si varias comparten un dato que quien las atrapa necesita, como un código de error, extienden una base abstracta `<Motivo>Exception` de la misma carpeta. Así un solo `catch` las trata a todas.
 11. Un `@RestControllerAdvice(assignableTypes = XxxController.class)` por módulo traduce las excepciones a `ProblemDetail` (`application/problem+json`) con una propiedad `code`. **NUNCA** un `try/catch` en un controlador.
+    - Lo que no es de ningún módulo lo traduce `GlobalExceptionHandler`, en `shared/infrastructure/web/exception`: los parámetros inválidos (`VALIDATION_ERROR`), `CatalogNotInitializedException` y el error no previsto (500 `INTERNAL_ERROR`, con el detalle solo en el log).
+    - El handler de un módulo lleva `@Order(Ordered.HIGHEST_PRECEDENCE)` y el global `@Order(Ordered.LOWEST_PRECEDENCE)`. Spring usa el primer handler que tenga un método para la excepción: sin ese orden, el 500 del global se queda con los errores del módulo.
 12. Los errores que llegan de la cátedra se deciden por su `code`, **NUNCA** por el texto del mensaje.
 
 **Modelo de dominio**
@@ -170,7 +172,7 @@ shared.*         ──NUNCA──▶       ningún otro módulo
     │   ├── controller/     XxxController.java
     │   ├── dto/            XxxRequest.java, XxxResponse.java
     │   ├── mapper/         XxxDtoMapper.java
-    │   └── exception/      XxxExceptionHandler.java
+    │   └── exception/      XxxExceptionHandler.java       (en shared: GlobalExceptionHandler)
     ├── persistence/        adaptador de salida a la base propia
     │   ├── entity/         XxxEntity.java
     │   ├── repository/     JpaXxxRepository.java
@@ -210,7 +212,8 @@ Solo existen las carpetas de las tecnologías que el módulo usa. Para una tecno
 | DTO web | `infrastructure/web/dto` | `XxxRequest` (sin id, con validaciones), `XxxResponse` (con id) | Request: `@NoArgsConstructor @Setter`; Response: `@Getter`; el resto según la regla 26 | `jakarta.validation` |
 | DTO externo | `infrastructure/<tecnologia>/dto` | `XxxRedisDto`, `XxxApiResponse` | `record`, sin Lombok (regla 27) | `java.*` |
 | Mapper web | `infrastructure/web/mapper` | `XxxDtoMapper`: `toDomain`, `toResponse` | `@Component` | modelo, DTO |
-| Handler de errores | `infrastructure/web/exception` | `XxxExceptionHandler` | `@RestControllerAdvice(assignableTypes = XxxController.class)` | excepciones del módulo |
+| Handler de errores | `infrastructure/web/exception` | `XxxExceptionHandler` | `@RestControllerAdvice(assignableTypes = XxxController.class)`, `@Order(Ordered.HIGHEST_PRECEDENCE)` | excepciones del módulo |
+| Handler global | `shared/infrastructure/web/exception` | `GlobalExceptionHandler extends ResponseEntityExceptionHandler` (ya existe) | `@RestControllerAdvice`, `@Order(Ordered.LOWEST_PRECEDENCE)` | excepciones de `shared` |
 | Entidad JPA | `infrastructure/persistence/entity` | `XxxEntity` | `@Entity @Table @NoArgsConstructor`; el resto según la regla 26 | `jakarta.persistence` |
 | Repositorio Spring Data | `infrastructure/persistence/repository` | `JpaXxxRepository extends JpaRepository<XxxEntity, Long>` | ninguna | entidad |
 | Mapper de persistencia | `infrastructure/persistence/mapper` | `XxxMapper`: `toEntity`, `toDomainModel` | `@Component` | modelo, entidad |
@@ -596,6 +599,7 @@ public class XxxController {
 ```java
 package ar.edu.um.progii.catalog.xxx.infrastructure.web.exception;
 
+@Order(Ordered.HIGHEST_PRECEDENCE)
 @RestControllerAdvice(assignableTypes = XxxController.class)
 public class XxxExceptionHandler {
 
