@@ -14,9 +14,9 @@ class SyncDecisionTest {
 	void noopAndSnapshotCarryTheirActionWithoutIds() {
 
 		assertThat(SyncDecision.noop().getAction()).isEqualTo(SyncAction.NOOP);
-		assertThat(SyncDecision.noop().getIdsToApply().isEmpty()).isTrue();
+		assertThat(SyncDecision.noop().getIdsToApply()).isEqualTo(IdsByEntityType.empty());
 		assertThat(SyncDecision.snapshot().getAction()).isEqualTo(SyncAction.SNAPSHOT);
-		assertThat(SyncDecision.snapshot().getIdsToApply().isEmpty()).isTrue();
+		assertThat(SyncDecision.snapshot().getIdsToApply()).isEqualTo(IdsByEntityType.empty());
 
 	}
 
@@ -38,7 +38,7 @@ class SyncDecisionTest {
 		SyncDecision decision = SyncDecision.incremental(IdsByEntityType.empty());
 
 		assertThat(decision.getAction()).isEqualTo(SyncAction.INCREMENTAL);
-		assertThat(decision.getIdsToApply().isEmpty()).isTrue();
+		assertThat(decision.getIdsToApply()).isEqualTo(IdsByEntityType.empty());
 
 	}
 

@@ -45,6 +45,7 @@ Cada regla va con su motivo. Romper una es un error, aunque compile.
 8. Los puertos de entrada **NUNCA** devuelven `Optional`. Si lo pedido no existe, el `UseCaseImpl` lanza `XxxNotFoundException`. Así todos los adaptadores de entrada reciben la misma regla.
 9. Los puertos de salida **SÍ** devuelven `Optional` (o `boolean` al borrar). La persistencia solo informa "no hay" y no decide nada.
 10. Las excepciones de negocio van en `application/exception`, extienden `RuntimeException` y se llaman `<Motivo>Exception`.
+    - Si varias comparten un dato que quien las atrapa necesita, como un código de error, extienden una base abstracta `<Motivo>Exception` de la misma carpeta. Así un solo `catch` las trata a todas.
 11. Un `@RestControllerAdvice(assignableTypes = XxxController.class)` por módulo traduce las excepciones a `ProblemDetail` (`application/problem+json`) con una propiedad `code`. **NUNCA** un `try/catch` en un controlador.
 12. Los errores que llegan de la cátedra se deciden por su `code`, **NUNCA** por el texto del mensaje.
 

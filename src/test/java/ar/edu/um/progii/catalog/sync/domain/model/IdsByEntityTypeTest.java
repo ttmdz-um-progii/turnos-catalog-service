@@ -65,7 +65,7 @@ class IdsByEntityTypeTest {
 		IdsByEntityType ids = new IdsByEntityType(Map.of(PROFESSIONAL, Set.of(10L), WEEKLY_SCHEDULE, Set.of()));
 
 		assertThat(ids).isEqualTo(new IdsByEntityType(Map.of(PROFESSIONAL, Set.of(10L))));
-		assertThat(new IdsByEntityType(Map.of(WEEKLY_SCHEDULE, Set.of())).isEmpty()).isTrue();
+		assertThat(new IdsByEntityType(Map.of(WEEKLY_SCHEDULE, Set.of()))).isEqualTo(IdsByEntityType.empty());
 
 	}
 

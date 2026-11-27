@@ -30,12 +30,6 @@ public class IdsByEntityType {
 
 	}
 
-	public boolean isEmpty() {
-
-		return idsByType.isEmpty();
-
-	}
-
 	// Un id que está en los dos grupos queda una sola vez
 	public IdsByEntityType union(IdsByEntityType otherIds) {
 
